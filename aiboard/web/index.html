@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aiboard</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #fff; --ink: #172b4d; --muted: #6b778c; --line: #dfe1e6;
+    --accent: #0052cc; --backlog: #8993a4; --inprog: #0065ff; --done: #36b37e; --cancel: #de350b;
+    --high: #de350b; --medium: #ff991f; --low: #6b778c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--ink); }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+  header h1 span { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
+  header .spacer { flex: 1; }
+  select, button, input { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
+  button { cursor: pointer; }
+  button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .status { font-size: 12px; color: var(--muted); }
+  .status.err { color: var(--cancel); }
+  main { padding: 16px 20px; }
+  .board { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 14px; }
+  .col { background: #ebecf0; border-radius: 10px; padding: 10px; min-height: 200px; }
+  .col h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 2px 6px 10px; display: flex; justify-content: space-between; }
+  .col h2::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--dot); vertical-align: middle; }
+  .col[data-status="backlog"] { --dot: var(--backlog); }
+  .col[data-status="in-progress"] { --dot: var(--inprog); }
+  .col[data-status="done"] { --dot: var(--done); }
+  .col[data-status="cancelled"] { --dot: var(--cancel); }
+  .card { background: var(--panel); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 1px rgba(9,30,66,.15); cursor: pointer; border-left: 3px solid transparent; }
+  .card:hover { background: #f7f8fa; }
+  .card.high { border-left-color: var(--high); }
+  .card.medium { border-left-color: var(--medium); }
+  .card.low { border-left-color: var(--low); }
+  .card .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); }
+  .card .title { font-weight: 500; margin: 2px 0 6px; }
+  .card .meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+  .chip { background: #f0f1f3; border-radius: 4px; padding: 1px 6px; }
+  .chip.sprint { background: #e9f0fb; color: var(--accent); }
+  .col.dimmed .card { opacity: .55; }
+  .sprints { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .sprint { background: var(--panel); border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 1px rgba(9,30,66,.15); cursor: pointer; }
+  .sprint:hover { background: #f7f8fa; }
+  .sprint .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .sprint h3 { margin: 0; font-size: 15px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; color: #fff; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+  .badge.backlog { background: var(--backlog); } .badge.in-progress { background: var(--inprog); }
+  .badge.done { background: var(--done); } .badge.cancelled { background: var(--cancel); }
+  .sprint .goal { color: var(--muted); margin: 6px 0; }
+  .bar { height: 8px; background: #ebecf0; border-radius: 4px; overflow: hidden; display: flex; margin: 10px 0 6px; }
+  .bar i { display: block; height: 100%; }
+  .bar .d { background: var(--done); } .bar .p { background: var(--inprog); } .bar .c { background: var(--cancel); opacity: .5; }
+  .sprint .nums { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+  .empty { color: var(--muted); padding: 30px; text-align: center; }
+  /* drawer */
+  .overlay { position: fixed; inset: 0; background: rgba(9,30,66,.45); display: none; z-index: 10; }
+  .overlay.open { display: block; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(720px, 100%); background: var(--panel); z-index: 11; transform: translateX(100%); transition: transform .18s ease; overflow-y: auto; box-shadow: -6px 0 24px rgba(9,30,66,.2); }
+  .drawer.open { transform: none; }
+  .drawer .head { padding: 16px 22px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; position: sticky; top: 0; background: var(--panel); }
+  .drawer .head h2 { margin: 4px 0 0; font-size: 18px; }
+  .drawer .body { padding: 18px 22px 40px; }
+  .kv { display: grid; grid-template-columns: 90px 1fr; gap: 4px 12px; font-size: 13px; margin-bottom: 18px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; }
+  .md h1 { font-size: 20px; } .md h2 { font-size: 16px; margin-top: 22px; } .md h3 { font-size: 14px; }
+  .md pre { background: #f4f5f7; padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  .md code { background: #f4f5f7; padding: 1px 4px; border-radius: 3px; font-size: 12.5px; }
+  .md pre code { background: none; padding: 0; }
+  .md blockquote { border-left: 3px solid var(--line); margin: 0; padding-left: 12px; color: var(--muted); }
+  .md table { border-collapse: collapse; } .md td, .md th { border: 1px solid var(--line); padding: 4px 8px; }
+  .log { border-left: 2px solid var(--line); margin-left: 6px; padding-left: 14px; }
+  .log .entry { margin-bottom: 14px; position: relative; }
+  .log .entry::before { content: ""; position: absolute; left: -19px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .log .when { font-size: 12px; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+  .log .who { font-weight: 600; margin-left: 6px; }
+  .path { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--muted); word-break: break-all; }
+  .task-row { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .task-row:hover { background: #f7f8fa; }
+  .task-row .id { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted); width: 52px; }
+  .task-row .t { flex: 1; }
+  @media (max-width: 900px) { .board { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 520px) { .board { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>aiboard <span id="root"></span></h1>
+  <div class="spacer"></div>
+  <button id="tabBoard" class="active">Board</button>
+  <button id="tabSprints">Sprints</button>
+  <select id="sprintFilter" title="Filter board by sprint"></select>
+  <label class="status"><input type="checkbox" id="auto" checked style="padding:0;vertical-align:middle"> auto-refresh</label>
+  <span class="status" id="status"></span>
+</header>
+<main>
+  <section id="boardView" class="board"></section>
+  <section id="sprintsView" class="sprints" hidden></section>
+</main>
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer">
+  <div class="head"><div id="drawerTitle"></div><button id="closeDrawer">✕</button></div>
+  <div class="body" id="drawerBody"></div>
+</aside>
+
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const state = { data: null, tab: 'board', sprint: 'all' };
+
+  // ---- minimal markdown renderer (headings, lists, code, emphasis, links, tables, quotes)
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function inline(s) {
+    return esc(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+      .replace(/(^|[^_])_([^_]+)_/g, '$1<em>$2</em>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/\b(T-\d{3}|S-\d{3})\b/g, '<a href="#" data-ref="$1">$1</a>');
+  }
+  function md(src) {
+    const lines = (src || '').split('\n'); let out = []; let i = 0;
+    while (i < lines.length) {
+      let l = lines[i];
+      if (/^```/.test(l)) { let buf = []; i++; while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]); i++; out.push('<pre><code>' + esc(buf.join('\n')) + '</code></pre>'); continue; }
+      let h = /^(#{1,6})\s+(.*)$/.exec(l);
+      if (h) { out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); i++; continue; }
+      if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
+        const ordered = /^\s*\d+\./.test(l); let items = [];
+        while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) {
+          let t = lines[i].replace(/^\s*([-*]|\d+\.)\s+/, '');
+          t = t.replace(/^\[( |x|-)\]\s*/i, (m, c) => `<input type="checkbox" disabled ${c.toLowerCase() === 'x' ? 'checked' : ''}> `);
+          items.push('<li>' + inline(t) + '</li>'); i++;
+        }
+        out.push((ordered ? '<ol>' : '<ul>') + items.join('') + (ordered ? '</ol>' : '</ul>')); continue;
+      }
+      if (/^\s*>/.test(l)) { let buf = []; while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, '')); out.push('<blockquote>' + inline(buf.join(' ')) + '</blockquote>'); continue; }
+      if (/^\|/.test(l)) { let rows = []; while (i < lines.length && /^\|/.test(lines[i])) rows.push(lines[i++]); const cells = r => r.replace(/^\||\|$/g, '').split('|').map(c => inline(c.trim())); const body = rows.filter(r => !/^\|\s*:?-+/.test(r)); out.push('<table>' + body.map((r, k) => '<tr>' + cells(r).map(c => k === 0 ? `<th>${c}</th>` : `<td>${c}</td>`).join('') + '</tr>').join('') + '</table>'); continue; }
+      if (/^\s*$/.test(l)) { i++; continue; }
+      if (/^---+\s*$/.test(l)) { out.push('<hr>'); i++; continue; }
+      let buf = []; while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,6}\s|```|\s*[-*]\s|\s*\d+\.\s|\s*>|\|)/.test(lines[i])) buf.push(lines[i++]);
+      out.push('<p>' + inline(buf.join(' ')) + '</p>');
+    }
+    return out.join('\n');
+  }
+
+  // ---- data
+  async function load() {
+    try {
+      const r = await fetch('/api/board'); if (!r.ok) throw new Error(r.status);
+      state.data = await r.json();
+      $('#root').textContent = state.data.root;
+      $('#status').className = 'status'; $('#status').textContent = 'updated ' + new Date().toLocaleTimeString();
+      render();
+    } catch (e) { $('#status').className = 'status err'; $('#status').textContent = 'cannot reach server'; }
+  }
+
+  function render() {
+    const d = state.data; if (!d) return;
+    // sprint filter
+    const sel = $('#sprintFilter'); const cur = sel.value || state.sprint;
+    sel.innerHTML = '<option value="all">All tasks</option><option value="none">No sprint</option>' +
+      d.sprints.map(s => `<option value="${s.id}">${s.id} · ${esc(s.title)} (${s.status})</option>`).join('');
+    sel.value = [...sel.options].some(o => o.value === cur) ? cur : 'all'; state.sprint = sel.value;
+    renderBoard(); renderSprints();
+    $('#boardView').hidden = state.tab !== 'board'; $('#sprintsView').hidden = state.tab !== 'sprints';
+    $('#tabBoard').classList.toggle('active', state.tab === 'board'); $('#tabSprints').classList.toggle('active', state.tab === 'sprints');
+    $('#sprintFilter').style.display = state.tab === 'board' ? '' : 'none';
+  }
+
+  function card(t) {
+    const labels = (t.labels || []).map(l => `<span class="chip">${esc(l)}</span>`).join('');
+    return `<div class="card ${t.priority}" data-task="${t.id}">
+      <div class="id">${t.id}</div><div class="title">${esc(t.title)}</div>
+      <div class="meta">${t.sprint ? `<span class="chip sprint">${t.sprint}</span>` : ''}${t.assignee ? `<span class="chip">@${esc(t.assignee)}</span>` : ''}<span class="chip">${t.priority}</span>${labels}</div></div>`;
+  }
+
+  function renderBoard() {
+    const d = state.data;
+    const tasks = d.tasks.filter(t => state.sprint === 'all' || (state.sprint === 'none' ? !t.sprint : t.sprint === state.sprint));
+    $('#boardView').innerHTML = d.statuses.map(s => {
+      const col = tasks.filter(t => t.status === s);
+      return `<div class="col ${s === 'cancelled' || s === 'done' ? 'dimmed' : ''}" data-status="${s}"><h2><span>${s}</span><span>${col.length}</span></h2>${col.map(card).join('') || ''}</div>`;
+    }).join('');
+  }
+
+  function renderSprints() {
+    const d = state.data;
+    if (!d.sprints.length) { $('#sprintsView').innerHTML = '<div class="empty">No sprints yet. Create one with <code>aiboard sprint new "Name"</code>.</div>'; return; }
+    const order = { 'in-progress': 0, backlog: 1, done: 2, cancelled: 3 };
+    $('#sprintsView').innerHTML = [...d.sprints].sort((a, b) => order[a.status] - order[b.status] || a.id.localeCompare(b.id)).map(s => {
+      const p = s.progress, c = p.counts, n = p.total || 1;
+      return `<div class="sprint" data-sprint="${s.id}">
+        <div class="top"><h3>${s.id} · ${esc(s.title)}</h3><span class="badge ${s.status}">${s.status}</span></div>
+        ${s.goal ? `<div class="goal">${esc(s.goal)}</div>` : ''}
+        <div class="bar"><i class="d" style="width:${100 * c.done / n}%"></i><i class="p" style="width:${100 * c['in-progress'] / n}%"></i><i class="c" style="width:${100 * c.cancelled / n}%"></i></div>
+        <div class="nums"><span>${c.done}/${p.total} done · ${c['in-progress']} in progress · ${c.backlog} backlog${c.cancelled ? ' · ' + c.cancelled + ' cancelled' : ''}</span><span>${s.start || '?'} → ${s.end || '?'}</span></div></div>`;
+    }).join('');
+  }
+
+  // ---- drawer
+  function openDrawer(titleHtml, bodyHtml) {
+    $('#drawerTitle').innerHTML = titleHtml; $('#drawerBody').innerHTML = bodyHtml;
+    $('#overlay').classList.add('open'); $('#drawer').classList.add('open');
+  }
+  function closeDrawer() { $('#overlay').classList.remove('open'); $('#drawer').classList.remove('open'); }
+
+  async function showTask(id) {
+    const r = await fetch('/api/tasks/' + id); if (!r.ok) return; const t = await r.json();
+    const log = t.worklog.slice().reverse().map(e => `<div class="entry"><span class="when">${esc(e.timestamp)}</span><span class="who">${esc(e.author)}</span><div class="md">${md(e.text)}</div></div>`).join('');
+    openDrawer(`<span class="badge ${t.status}">${t.status}</span><h2>${t.id} · ${esc(t.title)}</h2>`,
+      `<dl class="kv"><dt>Sprint</dt><dd>${t.sprint ? `<a href="#" data-ref="${t.sprint}">${t.sprint}</a>` : '—'}</dd>
+        <dt>Priority</dt><dd>${t.priority}</dd><dt>Assignee</dt><dd>${t.assignee ? esc(t.assignee) : '—'}</dd>
+        <dt>Labels</dt><dd>${(t.labels || []).join(', ') || '—'}</dd><dt>Updated</dt><dd>${t.updated || '—'}</dd>
+        <dt>Folder</dt><dd class="path">${esc(t.path)}</dd></dl>
+       <div class="md">${md(t.brief)}</div>
+       <h2 style="margin-top:28px">Worklog <span class="status">(${t.worklog.length})</span></h2><div class="log">${log || '<div class="empty">empty</div>'}</div>`);
+  }
+
+  async function showSprint(id) {
+    const r = await fetch('/api/sprints/' + id); if (!r.ok) return; const s = await r.json();
+    const rows = s.tasks_detail.map(t => `<div class="task-row" data-task="${t.id}"><span class="id">${t.id}</span><span class="t">${esc(t.title)}</span><span class="badge ${t.status}">${t.status}</span></div>`).join('');
+    const body = (s.description || '').replace(/^## Tasks[\s\S]*$/m, '');
+    openDrawer(`<span class="badge ${s.status}">${s.status}</span><h2>${s.id} · ${esc(s.title)}</h2>`,
+      `<dl class="kv"><dt>Goal</dt><dd>${s.goal ? esc(s.goal) : '—'}</dd><dt>Dates</dt><dd>${s.start || '?'} → ${s.end || '?'}</dd>
+        <dt>Progress</dt><dd>${s.progress.percent}% (${s.progress.counts.done}/${s.progress.total} done)</dd><dt>Folder</dt><dd class="path">${esc(s.path)}</dd></dl>
+       <div class="md">${md(body)}</div><h2>Tasks (${s.tasks_detail.length})</h2>${rows || '<div class="empty">no tasks attached</div>'}`);
+  }
+
+  // ---- events
+  document.addEventListener('click', (e) => {
+    const ref = e.target.closest('[data-ref]'); if (ref) { e.preventDefault(); const id = ref.dataset.ref; id.startsWith('T-') ? showTask(id) : showSprint(id); return; }
+    const c = e.target.closest('[data-task]'); if (c) { showTask(c.dataset.task); return; }
+    const s = e.target.closest('[data-sprint]'); if (s) { showSprint(s.dataset.sprint); return; }
+  });
+  $('#overlay').onclick = closeDrawer; $('#closeDrawer').onclick = closeDrawer;
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); });
+  $('#tabBoard').onclick = () => { state.tab = 'board'; render(); };
+  $('#tabSprints').onclick = () => { state.tab = 'sprints'; render(); };
+  $('#sprintFilter').onchange = (e) => { state.sprint = e.target.value; render(); };
+  setInterval(() => { if ($('#auto').checked) load(); }, 3000);
+  load();
+})();
+</script>
+</body>
+</html>

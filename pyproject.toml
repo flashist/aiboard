@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiboard"
+version = "0.1.0"
+description = "File-based issue tracker for AI agents and humans: tasks and sprints are folders, statuses are folders, Markdown is the database."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+
+[project.scripts]
+aiboard = "aiboard.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["aiboard*"]
+
+[tool.setuptools.package-data]
+aiboard = ["web/*.html"]
