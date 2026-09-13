@@ -415,11 +415,34 @@ class Board:
             self._append_worklog(self.get_task(task.id), author, f"No longer blocked by {', '.join(removed)}.")
             return self.get_task(task.id)
 
-    def assign(self, ref: str, assignee: Optional[str], author: str = "aiboard") -> Task:
+    def start(self, ref: str, assignee: str, author: str = "aiboard", force: bool = False) -> Task:
+        """Jira's "Start progress", done atomically: claim the task and move it to in-progress.
+
+        Fails unless the task is in backlog and unassigned (or already assigned
+        to ``assignee``). This is the safe way for concurrent agents to pick work.
+        """
+        with self.write_lock():
+            task = self.get_task(ref)
+            if task.status != "backlog" and not force:
+                who = f" by {task.assignee}" if task.assignee else ""
+                raise BoardError(f"{task.id} is {task.status}{who}, not in backlog; pick another task or pass --force")
+            if task.assignee and task.assignee != assignee and not force:
+                raise BoardError(f"{task.id} is already assigned to {task.assignee}; pick another task or pass --force")
+            if task.blocked and not force:
+                open_ids = [b["id"] for b in task.blockers if b["status"] not in ("done", "cancelled")]
+                raise BoardError(f"{task.id} is blocked by {', '.join(open_ids)}; finish those first or pass --force")
+            if task.assignee != assignee:
+                self.update_task(task.id, assignee=assignee)
+                self._append_worklog(self.get_task(task.id), author, f"Assigned to `{assignee}`.")
+            return self.move_task(task.id, "in-progress", author=author, force=True)
+
+    def assign(self, ref: str, assignee: Optional[str], author: str = "aiboard", force: bool = False) -> Task:
         with self.write_lock():
             task = self.get_task(ref)
             if task.assignee == assignee:
                 return task
+            if task.assignee and assignee and task.assignee != author and not force:
+                raise BoardError(f"{task.id} is already assigned to {task.assignee}; pass --force to reassign")
             self.update_task(task.id, assignee=assignee)
             who = f"`{assignee}`" if assignee else "nobody"
             self._append_worklog(self.get_task(task.id), author, f"Assigned to {who}.")

@@ -69,7 +69,9 @@ def make_handler(board: Board, read_only: bool = False):
                         t = board.move_task(tid, str(body.get("status") or ""), author=author, note=body.get("note") or None,
                                             force=bool(body.get("force")))
                     elif action == "assign":
-                        t = board.assign(tid, (body.get("assignee") or "").strip() or None, author=author)
+                        t = board.assign(tid, (body.get("assignee") or "").strip() or None, author=author, force=bool(body.get("force")))
+                    elif action == "start":
+                        t = board.start(tid, (body.get("assignee") or author).strip() or author, author=author, force=bool(body.get("force")))
                     elif action == "log":
                         t = board.log(tid, str(body.get("message") or "").strip() or _fail("message is required"), author=author)
                     elif action == "edit":

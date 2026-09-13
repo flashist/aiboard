@@ -265,6 +265,54 @@ class BoardTests(unittest.TestCase):
         self.assertTrue(any("missing task T-777" in p for p in self.board.check()))
         self.assertEqual(self.board.get_task("T-003").blockers[0]["status"], "missing")
 
+    def test_start_is_an_atomic_claim(self):
+        self.board.create_task("A")
+        t = self.board.start("T-001", "agent-1", author="agent-1")
+        self.assertEqual((t.status, t.assignee), ("in-progress", "agent-1"))
+        self.assertEqual([e.author for e in t.worklog][-2:], ["agent-1", "agent-1"])
+        with self.assertRaises(BoardError) as cm:
+            self.board.start("T-001", "agent-2", author="agent-2")
+        self.assertIn("in-progress by agent-1", str(cm.exception))
+        self.board.create_task("B", assignee="agent-1")
+        with self.assertRaises(BoardError) as cm:
+            self.board.start("T-002", "agent-2", author="agent-2")
+        self.assertIn("already assigned to agent-1", str(cm.exception))
+        self.assertEqual(self.board.start("T-002", "agent-1", author="agent-1").status, "in-progress")  # own task: fine
+        self.board.create_task("C", blocked_by=["T-001"])
+        with self.assertRaises(BoardError):
+            self.board.start("T-003", "agent-2")
+        self.assertEqual(self.board.start("T-003", "agent-2", force=True).assignee, "agent-2")
+
+    def test_assign_refuses_to_steal_without_force(self):
+        self.board.create_task("A")
+        self.board.assign("T-001", "agent-1", author="agent-1")
+        with self.assertRaises(BoardError) as cm:
+            self.board.assign("T-001", "agent-2", author="agent-2")
+        self.assertIn("already assigned to agent-1", str(cm.exception))
+        self.assertEqual(self.board.assign("T-001", "agent-2", author="agent-1").assignee, "agent-2")  # holder hands over
+        self.assertIsNone(self.board.assign("T-001", None, author="someone").assignee)  # unassign is always allowed
+        self.board.assign("T-001", "agent-3", author="agent-3")
+        self.assertEqual(self.board.assign("T-001", "boss", author="boss", force=True).assignee, "boss")
+
+    def test_parallel_start_has_exactly_one_winner(self):
+        import os
+        import subprocess
+        import sys
+
+        self.board.create_task("Contended")
+        env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parent.parent))
+        procs = [
+            subprocess.Popen([sys.executable, "-m", "aiboard", "--root", str(self.tmp), "task", "start", "T-001", "--as", f"agent-{i}", "--by", f"agent-{i}"],
+                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            for i in range(12)
+        ]
+        results = [pr.wait() for pr in procs]
+        self.assertEqual(results.count(0), 1, results)
+        t = self.board.get_task("T-001")
+        self.assertEqual(t.status, "in-progress")
+        self.assertTrue(t.assignee.startswith("agent-"))
+        self.assertEqual([e.text for e in t.worklog].count("Status changed `backlog` → `in-progress`."), 1)
+
     def test_not_found(self):
         with self.assertRaises(NotFound):
             self.board.get_task("T-042")
@@ -330,6 +378,11 @@ class CliTests(unittest.TestCase):
         code, out = self.run_cli("board")
         self.assertIn("T-001 Do it", out)
         self.assertEqual(self.run_cli("check")[0], 0)
+        code, out = self.run_cli("task", "show", "T-001", "--json")  # --json anywhere
+        self.assertEqual(json.loads(out)["id"], "T-001")
+        code, out = self.run_cli("task", "new", "Startable", "--json")
+        code, out = self.run_cli("task", "start", json.loads(out)["id"], "--as", "worker", "--json")
+        self.assertEqual((code, json.loads(out)["status"], json.loads(out)["assignee"]), (0, "in-progress", "worker"))
         code, out = self.run_cli("--json", "task", "show", "T-999")
         self.assertEqual(code, 1)
         self.assertIn("error", json.loads(out))

@@ -28,7 +28,7 @@ class ServerTests(unittest.TestCase):
 
     def req(self, path, data=None):
         url = f"http://127.0.0.1:{self.port}{path}"
-        body = json.dumps(data).encode() if data is not None else None
+        body = json.dumps({"author": "mark", **data}).encode() if data is not None else None
         r = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"} if body else {})
         try:
             with urllib.request.urlopen(r) as resp:
@@ -51,6 +51,14 @@ class ServerTests(unittest.TestCase):
         self.assertEqual((status, t["status"]), (200, "in-progress"))
         status, t = self.req("/api/tasks/T-001/assign", {"assignee": "mark", "author": "mark"})
         self.assertEqual(t["assignee"], "mark")
+        status, err = self.req("/api/tasks/T-001/assign", {"assignee": "someone", "author": "other"})
+        self.assertEqual(status, 400)
+        status, t = self.req("/api/tasks/T-001/assign", {"assignee": "someone", "author": "other", "force": True})
+        self.assertEqual(t["assignee"], "someone")
+        status, t = self.req("/api/tasks/T-001/assign", {"assignee": "mark", "author": "mark", "force": True})
+        status, t3 = self.req("/api/tasks", {"title": "Startable", "author": "mark"})
+        status, t3 = self.req(f"/api/tasks/{t3['id']}/start", {"author": "mark"})
+        self.assertEqual((status, t3["status"], t3["assignee"]), (200, "in-progress", "mark"))
         status, t = self.req("/api/tasks/T-001/log", {"message": "looked at it", "author": "mark"})
         self.assertEqual(t["worklog"][-1]["text"], "looked at it")
         self.assertEqual(t["worklog"][-1]["author"], "mark")
@@ -58,11 +66,12 @@ class ServerTests(unittest.TestCase):
         self.assertEqual((t["priority"], t["labels"]), ("high", ["x"]))
         status, t2 = self.req("/api/tasks", {"title": "Blocked", "blocked_by": ["T-001"]})
         self.assertEqual(status, 201)
-        status, t2 = self.req("/api/tasks/T-002/edit", {"blocked_by": "T-001"})
+        bid = t2["id"]
+        status, t2 = self.req(f"/api/tasks/{bid}/edit", {"blocked_by": "T-001"})
         self.assertEqual((t2["blocked_by"], t2["blocked"]), (["T-001"], True))
-        status, err = self.req("/api/tasks/T-002/status", {"status": "in-progress"})
+        status, err = self.req(f"/api/tasks/{bid}/status", {"status": "in-progress"})
         self.assertEqual(status, 400)
-        status, t2 = self.req("/api/tasks/T-002/status", {"status": "in-progress", "force": True})
+        status, t2 = self.req(f"/api/tasks/{bid}/status", {"status": "in-progress", "force": True})
         self.assertEqual(t2["status"], "in-progress")
         status, s = self.req("/api/sprints/S-001/status", {"status": "done"})
         self.assertEqual(s["status"], "done")

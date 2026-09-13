@@ -22,7 +22,7 @@ Set `AIBOARD_AUTHOR=<your-agent-name>` so worklog entries are attributed.
 Working loop:
 
 1. Find work: `aiboard --json task list --status backlog --unblocked [--sprint S-001]`
-2. Take it: `aiboard task assign T-007 <you>` then `aiboard task change-status T-007 in-progress`
+2. Take it: `aiboard task start T-007` (atomic claim + in-progress; if it fails, another agent got there first: pick the next task)
 3. Read the brief: `aiboard --json task show T-007`
 4. Log as you go: `aiboard task log T-007 "Implemented X. Next: Y."` (use `-` to pipe Markdown via stdin)
 5. Finish: `aiboard task change-status T-007 done --note "PR #12"` (or `cancelled --note "why"`)

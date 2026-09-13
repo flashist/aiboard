@@ -19,8 +19,9 @@ PROTOCOL_VERSION = "2025-06-18"
 
 INSTRUCTIONS = """aiboard is a file-based issue tracker: tasks and sprints are folders, the
 parent folder is the status (backlog, in-progress, done, cancelled).
-Typical loop: list_tasks(status="backlog", unblocked=true) -> assign_task -> change_task_status(in-progress)
--> get_task (read the brief) -> log_work as you go -> change_task_status(done, note=...).
+Typical loop: list_tasks(status="backlog", unblocked=true) -> start_task (atomic claim; if it fails,
+another agent got there first: pick the next one) -> get_task (read the brief) -> log_work as you go
+-> change_task_status(done, note=...).
 Worklogs are append-only; always log decisions and blockers so humans can follow.
 Run check_board when you have edited files by hand."""
 
@@ -113,10 +114,18 @@ class Server:
         def unblock_task(id, blockers):
             return b.unblock(id, blockers, author=self.author).to_dict()
 
-        @t("assign_task", "Set or clear the assignee of a task.",
-           _schema({"id": ID_PROP, "assignee": _str("name; omit or empty to unassign")}, ["id"]))
-        def assign_task(id, assignee=None):
-            return b.assign(id, assignee or None, author=self.author).to_dict()
+        @t("start_task", "Claim a backlog task and move it to in-progress in ONE atomic step (Jira: Start progress). "
+                         "Fails if the task is not in backlog, is assigned to someone else, or is blocked. "
+                         "Use this instead of assign_task + change_task_status when several agents share a board.",
+           _schema({"id": ID_PROP, "force": {"type": "boolean", "description": "take it anyway"}}, ["id"]))
+        def start_task(id, force=False):
+            return b.start(id, self.author, author=self.author, force=bool(force)).to_dict()
+
+        @t("assign_task", "Set or clear the assignee of a task. Refuses to take a task from someone else unless force=true.",
+           _schema({"id": ID_PROP, "assignee": _str("name; omit or empty to unassign"),
+                    "force": {"type": "boolean", "description": "reassign even if held by someone else"}}, ["id"]))
+        def assign_task(id, assignee=None, force=False):
+            return b.assign(id, assignee or None, author=self.author, force=bool(force)).to_dict()
 
         @t("log_work", "Append an entry to the task's worklog (Markdown). Use it for progress, decisions, blockers.",
            _schema({"id": ID_PROP, "message": _str("Markdown text")}, ["id", "message"]))

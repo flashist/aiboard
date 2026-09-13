@@ -55,8 +55,7 @@ aiboard agents-md --claude               # adds instructions to AGENTS.md and CL
 
 aiboard sprint new "Sprint 1" --goal "Ship v1" --start 2026-09-14 --end 2026-09-25 --status in-progress
 aiboard task new "Write the spec" --sprint S-001 --priority high --assignee claude
-aiboard task assign T-001 claude
-aiboard task change-status T-001 in-progress
+aiboard task start T-001 --as claude     # atomic claim + in-progress
 aiboard task log  T-001 "Drafted section 1, open question about X" --by claude
 aiboard task change-status T-001 done --note "Merged in PR #12"
 aiboard sprint show S-001                # progress + task list
@@ -122,7 +121,8 @@ approval before MCP tool calls unless its approval policy allows them.
 | `aiboard task show T-001` | Brief + worklog |
 | `aiboard task change-status T-001 STATUS [--note ...] [--force]` | Move the folder, append a worklog entry; refuses to start a blocked task unless forced |
 | `aiboard task block T-002 T-001` / `unblock ...` | Record that T-002 is blocked by T-001 (Jira: "is blocked by"); logged in the worklog |
-| `aiboard task assign T-001 NAME` | Set (or, with no name, clear) the assignee; logged in the worklog |
+| `aiboard task start T-001 [--as NAME]` | Claim a backlog task and move it to in-progress in one atomic step (Jira: Start progress); fails if someone else holds it |
+| `aiboard task assign T-001 NAME [--force]` | Set (or, with no name, clear) the assignee; refuses to take a task from someone else unless forced |
 | `aiboard task log T-001 "text"` | Append a worklog entry (`-` reads stdin) |
 | `aiboard task edit T-001 [--title] [--priority] [--assignee] [--sprint] [--label]` | Change metadata; keeps sprint files in sync |
 | `aiboard sprint new TITLE [--goal ...] [--start D] [--end D]` | Create a sprint in `backlog` |
@@ -268,5 +268,5 @@ python3 -m unittest discover -s tests -v
 - **Zero dependencies.** Agents can shell out to `python3 -m aiboard` anywhere Python exists.
 - **Stable ids with a slug suffix.** `T-001-fix-login` sorts, is unique, and is readable. References use the id only, so renaming a task does not break sprints.
 - **One store, three doors.** CLI, MCP server and web board all call the same store module, so every writer keeps the files consistent the same way.
-- **Safe for parallel agents.** Every write takes an advisory lock on `.aiboard.lock` in the board root, so two agents creating tasks at once never get the same id and folder moves never interleave with sprint-file rewrites.
+- **Safe for parallel agents.** Every write takes an advisory lock on `.aiboard.lock` in the board root, so two agents creating tasks at once never get the same id and folder moves never interleave with sprint-file rewrites. `task start` claims work atomically, so two agents can never both believe they own a task.
 - **Git-friendly.** Everything is text; the whole board can live in the repo it tracks, and history comes for free.

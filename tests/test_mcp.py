@@ -84,6 +84,17 @@ class McpTests(unittest.TestCase):
         self.assertEqual(self.call("block_task", id="T-002", blockers=["T-001"])["structuredContent"]["blocked_by"], ["T-001"])
         self.assertEqual(self.call("edit_task", id="T-002", blocked_by=[])["structuredContent"]["blocked_by"], [])
 
+    def test_start_task(self):
+        self.call("create_task", title="A")
+        t = self.call("start_task", id="T-001")["structuredContent"]
+        self.assertEqual((t["status"], t["assignee"]), ("in-progress", "bot"))
+        other = Server(self.board, author="other")
+        r = other.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "start_task", "arguments": {"id": "T-001"}}})["result"]
+        self.assertTrue(r["isError"])
+        self.assertIn("not in backlog", r["content"][0]["text"])
+        r = other.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "assign_task", "arguments": {"id": "T-001", "assignee": "other"}}})["result"]
+        self.assertTrue(r["isError"])
+
     def test_errors(self):
         r = self.rpc("tools/call", {"name": "get_task", "arguments": {"id": "T-404"}})["result"]
         self.assertTrue(r["isError"])

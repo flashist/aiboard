@@ -343,7 +343,7 @@
       const a = act.dataset.act; const id = state.open && state.open.id;
       if (a === 'cancel-modal') return closeModal();
       if (a === 'log') { const text = $('#logText').value.trim(); if (!text) return; await mutate(`/api/tasks/${id}/log`, { message: text }, 'logged').then(() => showTask(id)).catch(() => {}); return; }
-      if (a === 'assign-me') { const me = author(); if (me === 'web') { flash('type your name in the header first', true); return; } await mutate(`/api/tasks/${id}/assign`, { assignee: me }).then(() => showTask(id)).catch(() => {}); return; }
+      if (a === 'assign-me') { const me = author(); if (me === 'web') { flash('type your name in the header first', true); return; } await mutate(`/api/tasks/${id}/assign`, { assignee: me, force: true }).then(() => showTask(id)).catch(() => {}); return; }
       if (a === 'new-task-in-sprint') { newTaskForm(act.dataset.sprint); return; }
       return;
     }
@@ -359,7 +359,7 @@
       else if (a === 'priority') { await mutate(`/api/tasks/${id}/edit`, { priority: v }); showTask(id); }
       else if (a === 'sprint') { await mutate(`/api/tasks/${id}/edit`, { sprint: v }); showTask(id); }
       else if (a === 'blocked_by') { await mutate(`/api/tasks/${id}/edit`, { blocked_by: v }); showTask(id); }
-      else if (a === 'assignee') { await mutate(`/api/tasks/${id}/assign`, { assignee: v }); showTask(id); }
+      else if (a === 'assignee') { await mutate(`/api/tasks/${id}/assign`, { assignee: v, force: true }); showTask(id); }
       else if (a === 'sprint-status') { await mutate(`/api/sprints/${id}/status`, { status: v }, `${id} → ${v}`); showSprint(id); }
     } catch (err) {}
   });

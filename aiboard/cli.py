@@ -149,8 +149,15 @@ def cmd_task_unblock(args):
 
 def cmd_task_assign(args):
     board = _board(args)
-    t = board.assign(args.id, args.assignee or None, author=args.by)
+    t = board.assign(args.id, args.assignee or None, author=args.by, force=args.force)
     _emit(args, t.to_dict(), f"{t.id} assigned to {t.assignee or 'nobody'}")
+
+
+def cmd_task_start(args):
+    board = _board(args)
+    who = args.as_ or args.by
+    t = board.start(args.id, who, author=args.by, force=args.force)
+    _emit(args, t.to_dict(), f"{t.id} started by {who}: {t.path}")
 
 
 def cmd_task_log(args):
@@ -380,8 +387,16 @@ def build_parser() -> argparse.ArgumentParser:
     s = task.add_parser("assign", help="set the assignee (records it in the worklog)")
     s.add_argument("id")
     s.add_argument("assignee", nargs="?", default="", help="omit to unassign")
+    s.add_argument("--force", action="store_true", help="reassign even if someone else holds the task")
     s.add_argument("--by", default=DEFAULT_AUTHOR)
     s.set_defaults(func=cmd_task_assign)
+
+    s = task.add_parser("start", help="claim a backlog task and move it to in-progress in one atomic step (Jira: Start progress)")
+    s.add_argument("id")
+    s.add_argument("--as", dest="as_", metavar="NAME", help="assignee (default: --by / $AIBOARD_AUTHOR)")
+    s.add_argument("--force", action="store_true", help="take it even if assigned to someone else, not in backlog, or blocked")
+    s.add_argument("--by", default=DEFAULT_AUTHOR)
+    s.set_defaults(func=cmd_task_start)
 
     s = task.add_parser("log", help="append a worklog entry")
     s.add_argument("id")
@@ -469,7 +484,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # --json is accepted anywhere on the command line, not only before the subcommand
+    json_flag = "--json" in argv
+    argv = [a for a in argv if a != "--json"]
     args = parser.parse_args(argv)
+    args.json = json_flag
     try:
         args.func(args)
     except (BoardError, ValueError) as e:
