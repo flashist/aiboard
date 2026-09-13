@@ -339,6 +339,15 @@ class BoardTests(unittest.TestCase):
         (self.tmp / "aiboard.json").write_text('{"name": "x"}')
         self.board.comment("T-001", "still on it", author="bot")  # any activity clears it
         self.assertFalse(self.board.get_task("T-001").stale)
+        # needs_reply: latest comment from someone other than the assignee
+        self.assertFalse(self.board.get_task("T-001").needs_reply)
+        self.board.comment("T-001", "how is it going?", author="mark")
+        t = self.board.get_task("T-001")
+        self.assertTrue(t.needs_reply)
+        self.assertEqual(t.last_comment_by, "mark")
+        self.assertEqual([x.id for x in self.board.list_tasks(needs_reply=True)], ["T-001"])
+        self.board.comment("T-001", "nearly done", author="bot")
+        self.assertFalse(self.board.get_task("T-001").needs_reply)
 
     def test_not_found(self):
         with self.assertRaises(NotFound):

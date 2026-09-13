@@ -137,7 +137,7 @@
 <script>
 (function () {
   const $ = (s) => document.querySelector(s);
-  const state = { data: null, tab: 'board', sprint: 'all', open: null };
+  const state = { data: null, tab: 'board', sprint: 'all', open: null, hovering: false, pending: false };
   const STATUSES = ['backlog', 'in-progress', 'done', 'cancelled'];
   const PRIORITIES = ['low', 'medium', 'high'];
 
@@ -196,7 +196,13 @@
   function flash(msg, isError) { const el = $('#status'); el.className = 'status' + (isError ? ' err' : ''); el.textContent = msg; }
   async function load() {
     try {
-      state.data = await api('/api/board');
+      const fresh = await api('/api/board');
+      if ((state.hovering || dragId) && state.data && JSON.stringify(fresh.tasks) !== JSON.stringify(state.data.tasks)) {
+        // cards would move under the cursor: hold the update until the pointer leaves the board
+        state.pending = true; flash('changes waiting (move the mouse off the board)'); return;
+      }
+      state.pending = false;
+      state.data = fresh;
       document.title = state.data.name + ' · aiboard';
       $('#boardName').innerHTML = esc(state.data.name) + '<span>aiboard</span>';
       $('#roBadge').hidden = !state.data.read_only;
@@ -227,7 +233,7 @@
     const drag = state.data.read_only ? '' : 'draggable="true"';
     return `<div class="card ${t.priority}" data-task="${t.id}" ${drag}>
       <div class="id">${t.id}</div><div class="title">${esc(t.title)}</div>
-      <div class="meta">${t.blocked ? `<span class="chip blocked" title="blocked by ${t.blockers.filter(b => b.status !== 'done' && b.status !== 'cancelled').map(b => b.id).join(', ')}">blocked</span>` : ''}${t.stale ? `<span class="chip stale" title="no activity since ${esc(t.last_activity || '?')}">stale</span>` : ''}${t.comments_count ? `<span class="chip comments" title="${t.comments_count} comments">💬 ${t.comments_count}</span>` : ''}${t.sprint ? `<span class="chip sprint">${t.sprint}</span>` : ''}${t.assignee ? `<span class="chip">@${esc(t.assignee)}</span>` : ''}<span class="chip">${t.priority}</span>${labels}</div></div>`;
+      <div class="meta">${t.blocked ? `<span class="chip blocked" title="blocked by ${t.blockers.filter(b => b.status !== 'done' && b.status !== 'cancelled').map(b => b.id).join(', ')}">blocked</span>` : ''}${t.stale ? `<span class="chip stale" title="no activity since ${esc(t.last_activity || '?')}">stale</span>` : ''}${t.comments_count ? `<span class="chip comments" title="${t.comments_count} comments${t.needs_reply ? ', waiting on ' + esc(t.assignee) : ''}">💬 ${t.comments_count}${t.needs_reply ? ' · reply?' : ''}</span>` : ''}${t.sprint ? `<span class="chip sprint">${t.sprint}</span>` : ''}${t.assignee ? `<span class="chip">@${esc(t.assignee)}</span>` : ''}<span class="chip">${t.priority}</span>${labels}</div></div>`;
   }
   function renderBoard() {
     const d = state.data;
@@ -378,6 +384,9 @@
   $('#tabBoard').onclick = () => { state.tab = 'board'; store.set('tab', 'board'); render(); };
   $('#tabSprints').onclick = () => { state.tab = 'sprints'; store.set('tab', 'sprints'); render(); };
   $('#sprintFilter').onchange = (e) => { state.sprint = e.target.value; store.set('sprint', state.sprint); render(); };
+  const main = document.querySelector('main');
+  main.addEventListener('mouseenter', () => { state.hovering = true; });
+  main.addEventListener('mouseleave', () => { state.hovering = false; if (state.pending) load(); });
   $('#newTask').onclick = () => newTaskForm();
   $('#newSprint').onclick = () => newSprintForm();
   setInterval(() => { if ($('#auto').checked && !$('#modal').classList.contains('open')) load(); }, 3000);

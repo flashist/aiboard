@@ -275,7 +275,7 @@ class Board:
         return task
 
     def list_tasks(self, status: Optional[str] = None, sprint: Optional[str] = None,
-                   unblocked: bool = False, stale: bool = False) -> List[Task]:
+                   unblocked: bool = False, stale: bool = False, needs_reply: bool = False) -> List[Task]:
         self._require()
         status = normalize_status(status) if status else None
         sprint_id = normalize_id(SPRINT_PREFIX, sprint) if sprint else None
@@ -291,6 +291,8 @@ class Board:
             if unblocked and task.blocked:
                 continue
             if stale and not task.stale:
+                continue
+            if needs_reply and not task.needs_reply:
                 continue
             out.append(task)
         out.sort(key=lambda t: t.id)

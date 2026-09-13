@@ -49,7 +49,7 @@ def _read_body(args: argparse.Namespace) -> str:
 def _task_row(t) -> str:
     sprint = t.sprint or "-"
     who = t.assignee or "-"
-    flag = "blocked" if t.blocked else ("stale" if t.stale else "")
+    flag = "blocked" if t.blocked else ("stale" if t.stale else ("reply?" if t.needs_reply else ""))
     return f"{t.id:<6} {t.status:<12} {t.priority:<7} {sprint:<6} {who:<12} {flag:<8} {t.title}"
 
 
@@ -98,7 +98,8 @@ def cmd_task_new(args):
 
 def cmd_task_list(args):
     board = _board(args)
-    tasks = board.list_tasks(status=args.status, sprint=args.sprint, unblocked=args.unblocked, stale=args.stale)
+    tasks = board.list_tasks(status=args.status, sprint=args.sprint, unblocked=args.unblocked, stale=args.stale,
+                             needs_reply=args.needs_reply)
     if args.blocked:
         tasks = [t for t in tasks if t.blocked]
     if args.assignee:
@@ -372,6 +373,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--unblocked", action="store_true", help="only tasks whose blockers are all done or cancelled")
     s.add_argument("--blocked", action="store_true", help="only tasks that are currently blocked")
     s.add_argument("--stale", action="store_true", help="only in-progress tasks with no recent activity")
+    s.add_argument("--needs-reply", action="store_true", help="only tasks whose latest comment is not from the assignee")
     s.set_defaults(func=cmd_task_list)
 
     s = task.add_parser("show", help="show brief and worklog")

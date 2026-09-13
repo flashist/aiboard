@@ -19,6 +19,7 @@ PROTOCOL_VERSION = "2025-06-18"
 
 INSTRUCTIONS = """aiboard is a file-based issue tracker: tasks and sprints are folders, the
 parent folder is the status (backlog, in-progress, done, cancelled).
+Before new work: list_tasks(assignee=<you>, needs_reply=true) and act on those comments first.
 Typical loop: list_tasks(status="backlog", unblocked=true) -> start_task (atomic claim; if it fails,
 another agent got there first: pick the next one) -> get_task (read the brief) -> log_work as you go
 -> change_task_status(done, note=...).
@@ -72,9 +73,10 @@ class Server:
                          "Each task carries blocked_by, blocked (true while a blocker is open) and blockers.",
            _schema({"status": STATUS_PROP, "sprint": SPRINT_ID_PROP, "assignee": _str("filter by assignee"),
                     "unblocked": {"type": "boolean", "description": "only tasks that can be started now"},
-                    "stale": {"type": "boolean", "description": "only in-progress tasks with no recent activity"}}))
-        def list_tasks(status=None, sprint=None, assignee=None, unblocked=False, stale=False):
-            tasks = b.list_tasks(status=status, sprint=sprint, unblocked=bool(unblocked), stale=bool(stale))
+                    "stale": {"type": "boolean", "description": "only in-progress tasks with no recent activity"},
+                    "needs_reply": {"type": "boolean", "description": "only tasks whose latest comment is not from the assignee (someone is waiting on them)"}}))
+        def list_tasks(status=None, sprint=None, assignee=None, unblocked=False, stale=False, needs_reply=False):
+            tasks = b.list_tasks(status=status, sprint=sprint, unblocked=bool(unblocked), stale=bool(stale), needs_reply=bool(needs_reply))
             if assignee:
                 tasks = [x for x in tasks if x.assignee == assignee]
             return [x.to_dict() for x in tasks]

@@ -13,6 +13,7 @@ Set `AIBOARD_AUTHOR=<your-agent-name>` so worklog entries are attributed.
 
 Working loop:
 
+0. First, answer people: `aiboard --json task list --assignee <you> --needs-reply` lists your tasks (any status) whose latest comment is not yours. Act on those before new work.
 1. Find work: `aiboard --json task list --status backlog --unblocked [--sprint S-001]`
 2. Take it: `aiboard task start T-007` (atomic claim + in-progress; if it fails, another agent got there first: pick the next task)
 3. Read the brief: `aiboard --json task show T-007`

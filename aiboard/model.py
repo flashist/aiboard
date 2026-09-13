@@ -237,6 +237,15 @@ class Task:
     stale: bool = False
 
     @property
+    def last_comment_by(self) -> Optional[str]:
+        return self.comments[-1].author if self.comments else None
+
+    @property
+    def needs_reply(self) -> bool:
+        """The latest comment came from someone other than the assignee."""
+        return bool(self.comments) and self.assignee is not None and self.comments[-1].author != self.assignee
+
+    @property
     def last_activity(self) -> Optional[str]:
         """Timestamp of the latest worklog entry or comment, else the updated field."""
         stamps = [e.timestamp for e in self.worklog] + [e.timestamp for e in self.comments]
@@ -292,6 +301,8 @@ class Task:
             "last_activity": self.last_activity,
             "stale": self.stale,
             "comments_count": len(self.comments),
+            "last_comment_by": self.last_comment_by,
+            "needs_reply": self.needs_reply,
             "created": self.meta.get("created"),
             "updated": self.meta.get("updated"),
             "folder": self.folder,
