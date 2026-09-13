@@ -220,12 +220,36 @@ class Server:
             return None
         return {"jsonrpc": "2.0", "id": msg_id, "result": result}
 
+    def _normalize_arguments(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Map common aliases (task_id, taskId, sprint_id, ...) onto the declared parameter
+        names and reject anything else with a message that lists what is accepted."""
+        props = self.tools[name]["inputSchema"]["properties"]
+        out: Dict[str, Any] = {}
+        for key, value in (arguments or {}).items():
+            target = key
+            if key not in props:
+                base = "".join("_" + c.lower() if c.isupper() else c for c in key).strip("_")  # camelCase -> snake
+                candidates = [base]
+                if base.endswith("_id"):
+                    stem = base[:-3]  # task_id -> task, sprint_id -> sprint
+                    candidates += [stem, "id"]
+                target = next((c for c in candidates if c in props), None)
+                if target is None:
+                    raise _ToolError(f"{name}: unknown argument {key!r}; accepted: {', '.join(props) or 'none'}")
+            if target in out:
+                raise _ToolError(f"{name}: argument {target!r} given twice ({key})")
+            out[target] = value
+        missing = [r for r in self.tools[name]["inputSchema"].get("required", []) if r not in out]
+        if missing:
+            raise _ToolError(f"{name}: missing required argument(s): {', '.join(missing)}")
+        return out
+
     def _call(self, name: Optional[str], arguments: Dict[str, Any]) -> Dict[str, Any]:
         fn = self.handlers.get(name or "")
         if fn is None:
-            raise _ToolError(f"unknown tool: {name}")
+            raise _ToolError(f"unknown tool: {name}; available: {', '.join(self.tools)}")
         try:
-            data = fn(**arguments)
+            data = fn(**self._normalize_arguments(name or "", arguments))
         except (BoardError, NotFound, ValueError, TypeError) as e:
             raise _ToolError(f"{type(e).__name__}: {e}")
         return {

@@ -95,6 +95,21 @@ class McpTests(unittest.TestCase):
         r = other.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "assign_task", "arguments": {"id": "T-001", "assignee": "other"}}})["result"]
         self.assertTrue(r["isError"])
 
+    def test_argument_aliases_and_unknown_arguments(self):
+        self.call("create_task", title="A")
+        t = self.call("get_task", task_id="T-001")["structuredContent"]  # alias for id
+        self.assertEqual(t["id"], "T-001")
+        t = self.call("get_task", taskId="T-001")["structuredContent"]
+        self.assertEqual(t["id"], "T-001")
+        self.call("create_sprint", title="S")
+        r = self.call("sprint_add_tasks", sprint_id="S-001", tasks=["T-001"])["structuredContent"]
+        self.assertEqual(r["tasks"], ["T-001"])
+        r = self.rpc("tools/call", {"name": "start_task", "arguments": {"tid": "T-001"}})["result"]
+        self.assertTrue(r["isError"])
+        self.assertIn("unknown argument 'tid'; accepted: id, force", r["content"][0]["text"])
+        r = self.rpc("tools/call", {"name": "start_task", "arguments": {}})["result"]
+        self.assertIn("missing required argument(s): id", r["content"][0]["text"])
+
     def test_errors(self):
         r = self.rpc("tools/call", {"name": "get_task", "arguments": {"id": "T-404"}})["result"]
         self.assertTrue(r["isError"])
