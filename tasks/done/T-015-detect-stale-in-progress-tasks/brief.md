@@ -3,12 +3,12 @@ id: T-015
 title: Detect stale in-progress tasks
 sprint: S-003
 priority: medium
-assignee: 
+assignee: claude
 labels:
   - cli
 blocked_by: []
 created: "2026-09-13T07:48:54Z"
-updated: "2026-09-13T07:48:54Z"
+updated: "2026-09-13T09:51:36Z"
 ---
 
 # Detect stale in-progress tasks
