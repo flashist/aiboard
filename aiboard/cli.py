@@ -292,7 +292,7 @@ def cmd_serve(args):
     from .server import serve
 
     board = _board(args)
-    serve(board, host=args.host, port=args.port, open_browser=not args.no_open)
+    serve(board, host=args.host, port=args.port, open_browser=not args.no_open, read_only=args.read_only)
 
 
 # ------------------------------------------------------------------- parser
@@ -425,6 +425,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8484)
     s.add_argument("--no-open", action="store_true", help="do not open a browser")
+    s.add_argument("--read-only", action="store_true", help="disable editing from the browser")
     s.set_defaults(func=cmd_serve)
     return p
 

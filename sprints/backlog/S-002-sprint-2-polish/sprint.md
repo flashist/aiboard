@@ -8,7 +8,7 @@ tasks:
   - T-005
   - T-006
 created: "2026-09-12T19:36:17Z"
-updated: "2026-09-12T19:36:18Z"
+updated: "2026-09-13T06:26:49Z"
 ---
 
 # Sprint 2 — polish
@@ -17,5 +17,5 @@ updated: "2026-09-12T19:36:18Z"
 
 ## Tasks
 
-- [ ] T-005 — Drag-and-drop status changes in the web board (backlog)
+- [x] T-005 — Drag-and-drop status changes in the web board (done)
 - [ ] T-006 — Task dependencies (blocked-by) (backlog)

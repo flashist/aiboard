@@ -107,6 +107,8 @@ args = ["mcp", "--author", "codex"]
 
 The server resolves the board from its working directory (or `--root`), and
 reports its name and location in the MCP `instructions` field on connect.
+Verified end to end with Claude Code and Codex CLI; note that Codex asks for
+approval before MCP tool calls unless its approval policy allows them.
 
 ## Commands
 
@@ -229,10 +231,21 @@ Run `aiboard check` afterwards to confirm the board is consistent. See
 
 `aiboard serve` runs a small local server with no state of its own. Every
 request re-reads the folders, so the page is always in sync with what agents
-write. It offers a kanban board (filterable by sprint), a sprint overview with
-progress bars, and a detail drawer showing each task's brief and worklog.
+write, and it refreshes itself every few seconds.
 
-API: `GET /api/board`, `GET /api/tasks/T-001`, `GET /api/sprints/S-001`, `GET /api/check`.
+For humans it is a Trello-style board: drag cards between columns to change
+status, open a card to change sprint, priority or assignee, add worklog
+entries, and create tasks and sprints from forms. Type your name in the header
+once; it is remembered in the browser and used as the author of everything you
+do. `aiboard serve --read-only` turns editing off for display-only screens.
+
+Writes go through the same store code as the CLI and the MCP server, so the
+files stay consistent no matter who edits.
+
+API: `GET /api/board`, `GET /api/tasks/T-001`, `GET /api/sprints/S-001`,
+`GET /api/check`; `POST /api/tasks`, `POST /api/tasks/T-001/{status,assign,log,edit}`,
+`POST /api/sprints`, `POST /api/sprints/S-001/status`, `POST /api/check/fix`.
+POST bodies are JSON and may carry an `author`.
 
 ## Development
 
@@ -245,6 +258,6 @@ python3 -m unittest discover -s tests -v
 - **Folder = status.** No status field to drift out of sync. `ls tasks/in-progress` is the query.
 - **Zero dependencies.** Agents can shell out to `python3 -m aiboard` anywhere Python exists.
 - **Stable ids with a slug suffix.** `T-001-fix-login` sorts, is unique, and is readable. References use the id only, so renaming a task does not break sprints.
-- **Read-only web UI (for now).** Writes go through the CLI or the files so there is one code path keeping things consistent. Editing from the browser can call the same store later.
+- **One store, three doors.** CLI, MCP server and web board all call the same store module, so every writer keeps the files consistent the same way.
 - **Safe for parallel agents.** Every write takes an advisory lock on `.aiboard.lock` in the board root, so two agents creating tasks at once never get the same id and folder moves never interleave with sprint-file rewrites.
 - **Git-friendly.** Everything is text; the whole board can live in the repo it tracks, and history comes for free.
