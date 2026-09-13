@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, List, Optional
 
+from . import __version__
 from .model import PRIORITIES, STATUSES
 from .store import Board, BoardError
 
@@ -25,8 +26,7 @@ class Parser(argparse.ArgumentParser):
 
 
 def _board(args: argparse.Namespace) -> Board:
-    root = args.root or os.environ.get("AIBOARD_ROOT") or "."
-    return Board(Path(root))
+    return Board.locate(args.root)
 
 
 def _emit(args: argparse.Namespace, data: Any, text: str) -> None:
@@ -74,10 +74,11 @@ def _sprint_table(board: Board, sprints) -> str:
 # ------------------------------------------------------------------ commands
 
 def cmd_init(args):
-    board = _board(args)
-    created = board.init()
-    _emit(args, {"root": str(board.root), "created": [str(p) for p in created]},
-          f"Board ready at {board.root} ({len(created)} folders created)")
+    board = Board(Path(args.root or args.dir or "."))
+    created = board.init(name=args.name)
+    _emit(args, {"root": str(board.root), "name": board.name, "created": [str(p) for p in created]},
+          f"Board '{board.name}' ready at {board.root} ({len(created)} entries created)\n"
+          f"Next: `aiboard agents-md` to add agent instructions, `aiboard serve` for the web board.")
 
 
 def cmd_task_new(args):
@@ -269,11 +270,15 @@ def cmd_serve(args):
 
 def build_parser() -> argparse.ArgumentParser:
     p = Parser(prog="aiboard", description="File-based issue tracker for AI agents and humans.")
-    p.add_argument("--root", help="board root (default: $AIBOARD_ROOT or current directory)")
+    p.add_argument("--root", help="board root (default: $AIBOARD_ROOT, else the nearest parent holding a board)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--version", action="version", version=f"aiboard {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True, parser_class=Parser)
 
-    sub.add_parser("init", help="create the folder skeleton").set_defaults(func=cmd_init)
+    s = sub.add_parser("init", help="create a board (folder skeleton + aiboard.json)")
+    s.add_argument("dir", nargs="?", help="where to create it (default: current directory)")
+    s.add_argument("--name", help="board name shown in the web UI (default: folder name)")
+    s.set_defaults(func=cmd_init)
 
     # tasks
     task = sub.add_parser("task", help="manage tasks").add_subparsers(dest="task_cmd", required=True, parser_class=Parser)

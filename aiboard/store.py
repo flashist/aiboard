@@ -10,6 +10,7 @@ The folder a task or sprint sits in *is* its status. Nothing else stores it.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -49,6 +50,7 @@ class NotFound(BoardError):
 
 ID_DIR = re.compile(r"^([A-Z])-(\d+)(?:-(.*))?$")
 LOCK_FILE = ".aiboard.lock"
+CONFIG_FILE = "aiboard.json"
 
 try:
     import fcntl
@@ -56,11 +58,52 @@ except ImportError:  # pragma: no cover - Windows
     fcntl = None
 
 
+def find_board_root(start: Optional[Path] = None) -> Optional[Path]:
+    """Walk up from ``start`` (default: cwd) to find a board root, like git does.
+
+    A directory is a board root when it holds ``aiboard.json`` or both ``tasks/``
+    and ``sprints/``.
+    """
+    here = Path(start or Path.cwd()).resolve()
+    for candidate in [here, *here.parents]:
+        if (candidate / CONFIG_FILE).is_file():
+            return candidate
+        if (candidate / "tasks").is_dir() and (candidate / "sprints").is_dir():
+            return candidate
+    return None
+
+
 class Board:
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
         self._lock_depth = 0
         self._lock_fd: Optional[int] = None
+        self._config: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def locate(cls, root: Optional[str] = None) -> "Board":
+        """Resolve the board: explicit root, then $AIBOARD_ROOT, then walk up from cwd."""
+        if root:
+            return cls(Path(root))
+        env = os.environ.get("AIBOARD_ROOT")
+        if env:
+            return cls(Path(env))
+        found = find_board_root()
+        return cls(found if found else Path.cwd())
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        if self._config is None:
+            f = self.root / CONFIG_FILE
+            try:
+                self._config = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+            except ValueError as e:
+                raise BoardError(f"{f} is not valid JSON: {e}")
+        return self._config
+
+    @property
+    def name(self) -> str:
+        return str(self.config.get("name") or self.root.name)
 
     @contextmanager
     def write_lock(self):
@@ -97,8 +140,9 @@ class Board:
     def exists(self) -> bool:
         return self.tasks_dir.is_dir() and self.sprints_dir.is_dir()
 
-    def init(self) -> List[Path]:
+    def init(self, name: Optional[str] = None) -> List[Path]:
         created = []
+        self.root.mkdir(parents=True, exist_ok=True)
         for base in (self.tasks_dir, self.sprints_dir):
             for status in STATUSES:
                 p = base / status
@@ -108,6 +152,11 @@ class Board:
                 keep = p / ".gitkeep"
                 if not keep.exists():
                     keep.touch()
+        cfg = self.root / CONFIG_FILE
+        if not cfg.exists():
+            cfg.write_text(json.dumps({"name": name or self.root.name, "version": 1}, indent=2) + "\n", encoding="utf-8")
+            created.append(cfg)
+            self._config = None
         return created
 
     def _require(self) -> None:
@@ -505,6 +554,7 @@ class Board:
             sprints.append(d)
         return {
             "root": str(self.root),
+            "name": self.name,
             "statuses": STATUSES,
             "tasks": [t.to_dict() for t in tasks],
             "sprints": sprints,

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from aiboard.cli import main
 from aiboard.model import dump_front_matter, normalize_id, normalize_status, parse_front_matter, parse_worklog, slugify
-from aiboard.store import Board, BoardError, NotFound
+from aiboard.store import Board, BoardError, NotFound, find_board_root
 
 
 class ModelTests(unittest.TestCase):
@@ -46,7 +46,7 @@ class ModelTests(unittest.TestCase):
 
 class BoardTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
         self.board = Board(self.tmp)
         self.board.init()
 
@@ -187,6 +187,30 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(self.board.check(), [])
         self.assertEqual(self.board.sprint_progress(self.board.get_sprint("S-001"))["percent"], 100)
 
+    def test_init_writes_config_and_discovery_walks_up(self):
+        import os
+
+        self.assertEqual(self.board.name, self.tmp.name)  # no config written by setUp's init? it is:
+        cfg = self.tmp / "aiboard.json"
+        self.assertTrue(cfg.exists())
+        cfg.write_text('{"name": "My Product", "version": 1}')
+        self.assertEqual(Board(self.tmp).name, "My Product")
+        deep = self.tmp / "src" / "pkg"
+        deep.mkdir(parents=True)
+        self.assertEqual(find_board_root(deep), self.tmp)
+        self.assertIsNone(find_board_root(Path(tempfile.mkdtemp())))
+        cwd = os.getcwd()
+        try:
+            os.chdir(deep)
+            self.assertEqual(Board.locate(None).root, self.tmp)
+            os.environ["AIBOARD_ROOT"] = str(self.tmp / "elsewhere")
+            self.assertEqual(Board.locate(None).root, (self.tmp / "elsewhere").resolve())
+        finally:
+            os.environ.pop("AIBOARD_ROOT", None)
+            os.chdir(cwd)
+        self.assertEqual(Board.locate(str(self.tmp)).root, self.tmp)
+        self.assertEqual(self.board.snapshot()["name"], "My Product")
+
     def test_not_found(self):
         with self.assertRaises(NotFound):
             self.board.get_task("T-042")
@@ -202,7 +226,7 @@ class BoardTests(unittest.TestCase):
 
 class CliTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp())
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
