@@ -11,6 +11,7 @@
     --high: #de350b; --medium: #ff991f; --low: #6b778c;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--ink); }
   header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
   header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
@@ -42,18 +43,18 @@
   .chip.sprint { background: #e9f0fb; color: var(--accent); }
   .col.dimmed .card { opacity: .55; }
   .sprints { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-  .sprint { background: var(--panel); border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 1px rgba(9,30,66,.15); cursor: pointer; }
-  .sprint:hover { background: #f7f8fa; }
-  .sprint .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-  .sprint h3 { margin: 0; font-size: 15px; }
+  .sprint-card { background: var(--panel); border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 1px rgba(9,30,66,.15); cursor: pointer; }
+  .sprint-card:hover { background: #f7f8fa; }
+  .sprint-card .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .sprint-card h3 { margin: 0; font-size: 15px; }
   .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; color: #fff; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
   .badge.backlog { background: var(--backlog); } .badge.in-progress { background: var(--inprog); }
   .badge.done { background: var(--done); } .badge.cancelled { background: var(--cancel); }
-  .sprint .goal { color: var(--muted); margin: 6px 0; }
+  .sprint-card .goal { color: var(--muted); margin: 6px 0; }
   .bar { height: 8px; background: #ebecf0; border-radius: 4px; overflow: hidden; display: flex; margin: 10px 0 6px; }
   .bar i { display: block; height: 100%; }
   .bar .d { background: var(--done); } .bar .p { background: var(--inprog); } .bar .c { background: var(--cancel); opacity: .5; }
-  .sprint .nums { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+  .sprint-card .nums { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
   .empty { color: var(--muted); padding: 30px; text-align: center; }
   /* drawer */
   .overlay { position: fixed; inset: 0; background: rgba(9,30,66,.45); display: none; z-index: 10; }
@@ -168,7 +169,7 @@
     renderBoard(); renderSprints();
     $('#boardView').hidden = state.tab !== 'board'; $('#sprintsView').hidden = state.tab !== 'sprints';
     $('#tabBoard').classList.toggle('active', state.tab === 'board'); $('#tabSprints').classList.toggle('active', state.tab === 'sprints');
-    $('#sprintFilter').style.display = state.tab === 'board' ? '' : 'none';
+    $('#sprintFilter').style.visibility = state.tab === 'board' ? '' : 'hidden';
   }
 
   function card(t) {
@@ -193,7 +194,7 @@
     const order = { 'in-progress': 0, backlog: 1, done: 2, cancelled: 3 };
     $('#sprintsView').innerHTML = [...d.sprints].sort((a, b) => order[a.status] - order[b.status] || a.id.localeCompare(b.id)).map(s => {
       const p = s.progress, c = p.counts, n = p.total || 1;
-      return `<div class="sprint" data-sprint="${s.id}">
+      return `<div class="sprint-card" data-sprint="${s.id}">
         <div class="top"><h3>${s.id} · ${esc(s.title)}</h3><span class="badge ${s.status}">${s.status}</span></div>
         ${s.goal ? `<div class="goal">${esc(s.goal)}</div>` : ''}
         <div class="bar"><i class="d" style="width:${100 * c.done / n}%"></i><i class="p" style="width:${100 * c['in-progress'] / n}%"></i><i class="c" style="width:${100 * c.cancelled / n}%"></i></div>
