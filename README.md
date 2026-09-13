@@ -118,9 +118,10 @@ approval before MCP tool calls unless its approval policy allows them.
 | `aiboard agents-md [--claude] [--print]` | Insert/refresh the agent instructions block in `AGENTS.md` (and `CLAUDE.md`) |
 | `aiboard mcp [--author A]` | MCP server over stdio |
 | `aiboard task new TITLE [--body ...] [--sprint S-001] [--priority low\|medium\|high] [--assignee X] [--label L]` | Create a task in `backlog` |
-| `aiboard task list [--status S] [--sprint S-001] [--assignee X]` | List tasks |
+| `aiboard task list [--status S] [--sprint S-001] [--assignee X] [--unblocked\|--blocked]` | List tasks |
 | `aiboard task show T-001` | Brief + worklog |
-| `aiboard task change-status T-001 STATUS [--note ...]` | Move the folder, append a worklog entry |
+| `aiboard task change-status T-001 STATUS [--note ...] [--force]` | Move the folder, append a worklog entry; refuses to start a blocked task unless forced |
+| `aiboard task block T-002 T-001` / `unblock ...` | Record that T-002 is blocked by T-001 (Jira: "is blocked by"); logged in the worklog |
 | `aiboard task assign T-001 NAME` | Set (or, with no name, clear) the assignee; logged in the worklog |
 | `aiboard task log T-001 "text"` | Append a worklog entry (`-` reads stdin) |
 | `aiboard task edit T-001 [--title] [--priority] [--assignee] [--sprint] [--label]` | Change metadata; keeps sprint files in sync |
@@ -149,6 +150,8 @@ priority: high         # low | medium | high
 assignee: claude
 labels:
   - docs
+blocked_by:            # tasks that must be done or cancelled first
+  - T-003
 created: "2026-09-12T19:29:51Z"
 updated: "2026-09-12T19:31:02Z"
 ---
@@ -158,6 +161,12 @@ updated: "2026-09-12T19:31:02Z"
 Free-form Markdown. Acceptance criteria, links, context, whatever the
 worker needs. Agents may edit this file directly.
 ```
+
+A task is **blocked** while any id in `blocked_by` is still in `backlog` or
+`in-progress`. `task list --unblocked` (or the MCP `list_tasks` with
+`unblocked: true`) returns only work that can start now, and `change-status
+... in-progress` refuses a blocked task unless `--force` is given. `check`
+reports missing blockers and dependency cycles.
 
 The front matter is a deliberately small YAML subset: scalars, `key: [a, b]`
 inline lists, and `- item` block lists. `status` is **not** stored here; the

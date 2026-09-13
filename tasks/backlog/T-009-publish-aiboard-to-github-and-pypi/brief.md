@@ -7,7 +7,9 @@ assignee:
 labels:
   - release
 created: "2026-09-13T06:27:29Z"
-updated: "2026-09-13T06:27:29Z"
+updated: "2026-09-13T06:46:44Z"
+blocked_by:
+  - T-006
 ---
 
 # Publish aiboard to GitHub and PyPI

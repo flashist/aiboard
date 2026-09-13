@@ -226,6 +226,45 @@ class BoardTests(unittest.TestCase):
         finally:
             shutil.rmtree(project)
 
+    def test_dependencies(self):
+        a = self.board.create_task("A")
+        b = self.board.create_task("B", blocked_by=["T-1"])
+        self.assertEqual(b.blocked_by, ["T-001"])
+        self.assertTrue(b.blocked)
+        self.assertEqual(b.blockers[0]["status"], "backlog")
+        self.assertEqual([t.id for t in self.board.list_tasks(unblocked=True)], ["T-001"])
+        with self.assertRaises(BoardError) as cm:
+            self.board.move_task("T-002", "in-progress")
+        self.assertIn("blocked by T-001", str(cm.exception))
+        self.board.move_task("T-002", "in-progress", force=True)
+        self.assertIn("in progress but blocked", " ".join(self.board.check()))
+        self.board.move_task("T-002", "backlog", force=True)
+        self.board.move_task("T-001", "done")
+        b = self.board.get_task("T-002")
+        self.assertFalse(b.blocked)
+        self.board.move_task("T-002", "in-progress")  # allowed now
+        # block / unblock keep a worklog trail and validate ids
+        c = self.board.create_task("C")
+        c = self.board.block("T-003", ["T-002", "2"], author="x")
+        self.assertEqual(c.blocked_by, ["T-002"])
+        self.assertIn("Blocked by T-002", c.worklog[-1].text)
+        with self.assertRaises(BoardError):
+            self.board.block("T-003", ["T-003"])
+        with self.assertRaises(NotFound):
+            self.board.block("T-003", ["T-999"])
+        c = self.board.unblock("T-003", ["T-002"])
+        self.assertEqual(c.blocked_by, [])
+        self.assertIn("No longer blocked", c.worklog[-1].text)
+        # cycles and dangling references are reported by check
+        self.board.update_task("T-001", blocked_by=["T-003"])
+        self.board.update_task("T-003", blocked_by=["T-001"])
+        problems = self.board.check()
+        self.assertTrue(any("dependency cycle" in p and "T-001" in p for p in problems), problems)
+        brief = self.board.get_task("T-003").path / "brief.md"
+        brief.write_text(brief.read_text().replace("- T-001", "- T-777"))
+        self.assertTrue(any("missing task T-777" in p for p in self.board.check()))
+        self.assertEqual(self.board.get_task("T-003").blockers[0]["status"], "missing")
+
     def test_not_found(self):
         with self.assertRaises(NotFound):
             self.board.get_task("T-042")

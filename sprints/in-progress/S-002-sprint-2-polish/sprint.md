@@ -13,7 +13,7 @@ tasks:
   - T-012
   - T-013
 created: "2026-09-12T19:36:17Z"
-updated: "2026-09-13T06:28:37Z"
+updated: "2026-09-13T06:46:44Z"
 ---
 
 # Sprint 2 — polish
@@ -23,7 +23,7 @@ updated: "2026-09-13T06:28:37Z"
 ## Tasks
 
 - [x] T-005 — Drag-and-drop status changes in the web board (done)
-- [ ] T-006 — Task dependencies (blocked-by) (backlog)
+- [ ] T-006 — Task dependencies (blocked-by) (in-progress)
 - [ ] T-009 — Publish aiboard to GitHub and PyPI (backlog)
 - [x] T-010 — MCP server for vendor-neutral agent access (done)
 - [x] T-011 — AGENTS.md / CLAUDE.md instruction block (done)

@@ -225,16 +225,45 @@ class Board:
         title = meta.get("title") or _title_from_body(body) or path.name
         return Task(id=tid, title=str(title), status=status, path=path, meta=meta, body=body, worklog=worklog)
 
-    def list_tasks(self, status: Optional[str] = None, sprint: Optional[str] = None) -> List[Task]:
+    def _status_index(self) -> Dict[str, Tuple[str, str]]:
+        """id -> (status, title) for every task, without parsing worklogs."""
+        index: Dict[str, Tuple[str, str]] = {}
+        for tid, st, path in self._scan(self.tasks_dir, TASK_PREFIX):
+            brief = path / BRIEF_FILE
+            title = path.name
+            if brief.exists():
+                meta, body = parse_front_matter(brief.read_text(encoding="utf-8"))
+                title = str(meta.get("title") or _title_from_body(body) or path.name)
+            index[tid] = (st, title)
+        return index
+
+    def _resolve_blockers(self, task: Task, index: Optional[Dict[str, Tuple[str, str]]] = None) -> Task:
+        ids = task.blocked_by
+        if not ids:
+            task.blockers = []
+            return task
+        index = index if index is not None else self._status_index()
+        task.blockers = [
+            {"id": b, "status": index[b][0], "title": index[b][1]} if b in index else {"id": b, "status": "missing", "title": None}
+            for b in ids
+        ]
+        return task
+
+    def list_tasks(self, status: Optional[str] = None, sprint: Optional[str] = None,
+                   unblocked: bool = False) -> List[Task]:
         self._require()
         status = normalize_status(status) if status else None
         sprint_id = normalize_id(SPRINT_PREFIX, sprint) if sprint else None
+        index = self._status_index()
         out = []
         for tid, st, path in self._scan(self.tasks_dir, TASK_PREFIX):
             if status and st != status:
                 continue
             task = self._load_task(tid, st, path)
             if sprint_id and task.sprint != sprint_id:
+                continue
+            self._resolve_blockers(task, index)
+            if unblocked and task.blocked:
                 continue
             out.append(task)
         out.sort(key=lambda t: t.id)
@@ -243,7 +272,7 @@ class Board:
     def get_task(self, ref: str) -> Task:
         self._require()
         tid, status, path = self._locate(self.tasks_dir, TASK_PREFIX, ref)
-        return self._load_task(tid, status, path)
+        return self._resolve_blockers(self._load_task(tid, status, path))
 
     def create_task(
         self,
@@ -255,6 +284,7 @@ class Board:
         assignee: Optional[str] = None,
         labels: Optional[List[str]] = None,
         author: str = "aiboard",
+        blocked_by: Optional[List[str]] = None,
     ) -> Task:
         with self.write_lock():
             self._require()
@@ -262,6 +292,7 @@ class Board:
             if priority not in PRIORITIES:
                 raise BoardError(f"priority must be one of {', '.join(PRIORITIES)}")
             sprint_obj = self.get_sprint(sprint) if sprint else None
+            blockers = self._normalize_blockers(blocked_by or [], None)
             tid = format_id(TASK_PREFIX, self._next_number(self.tasks_dir, TASK_PREFIX))
             folder = self.tasks_dir / status / f"{tid}-{slugify(title)}"
             folder.mkdir(parents=True)
@@ -273,6 +304,7 @@ class Board:
                 "priority": priority,
                 "assignee": assignee,
                 "labels": labels or [],
+                "blocked_by": blockers,
                 "created": ts,
                 "updated": ts,
             }
@@ -306,6 +338,8 @@ class Board:
                 meta["sprint"] = new_id
             if "priority" in fields and fields["priority"] not in PRIORITIES:
                 raise BoardError(f"priority must be one of {', '.join(PRIORITIES)}")
+            if "blocked_by" in fields:
+                fields["blocked_by"] = self._normalize_blockers(fields["blocked_by"] or [], task.id)
             for k, v in fields.items():
                 if v is not None or k in meta:
                     meta[k] = v
@@ -316,12 +350,16 @@ class Board:
             (task.path / BRIEF_FILE).write_text(dump_front_matter(meta, body), encoding="utf-8")
             return self.get_task(task.id)
 
-    def move_task(self, ref: str, status: str, author: str = "aiboard", note: Optional[str] = None) -> Task:
+    def move_task(self, ref: str, status: str, author: str = "aiboard", note: Optional[str] = None,
+                  force: bool = False) -> Task:
         with self.write_lock():
             task = self.get_task(ref)
             status = normalize_status(status)
             if status == task.status:
                 return task
+            if status == "in-progress" and task.blocked and not force:
+                open_ids = [b["id"] for b in task.blockers if b["status"] not in ("done", "cancelled")]
+                raise BoardError(f"{task.id} is blocked by {', '.join(open_ids)}; finish those first or pass --force")
             dest = self.tasks_dir / status / task.path.name
             if dest.exists():
                 raise BoardError(f"destination already exists: {dest}")
@@ -337,6 +375,44 @@ class Board:
                     self.refresh_sprint(moved.sprint)
                 except NotFound:
                     pass
+            return self.get_task(task.id)
+
+    def _normalize_blockers(self, refs: List[str], self_id: Optional[str]) -> List[str]:
+        out: List[str] = []
+        index = self._status_index()
+        for ref in refs:
+            tid = normalize_id(TASK_PREFIX, str(ref))
+            if tid is None:
+                raise BoardError(f"{ref!r} is not a valid task id")
+            if tid == self_id:
+                raise BoardError(f"{tid} cannot block itself")
+            if tid not in index:
+                raise NotFound(f"{tid} not found under {self.tasks_dir}")
+            if tid not in out:
+                out.append(tid)
+        return out
+
+    def block(self, ref: str, blocker_refs: List[str], author: str = "aiboard") -> Task:
+        """Add blockers (Jira: 'is blocked by')."""
+        with self.write_lock():
+            task = self.get_task(ref)
+            new = self._normalize_blockers(blocker_refs, task.id)
+            added = [b for b in new if b not in task.blocked_by]
+            if not added:
+                return task
+            self.update_task(task.id, blocked_by=task.blocked_by + added)
+            self._append_worklog(self.get_task(task.id), author, f"Blocked by {', '.join(added)}.")
+            return self.get_task(task.id)
+
+    def unblock(self, ref: str, blocker_refs: List[str], author: str = "aiboard") -> Task:
+        with self.write_lock():
+            task = self.get_task(ref)
+            drop = [normalize_id(TASK_PREFIX, r) for r in blocker_refs]
+            removed = [b for b in task.blocked_by if b in drop]
+            if not removed:
+                return task
+            self.update_task(task.id, blocked_by=[b for b in task.blocked_by if b not in drop])
+            self._append_worklog(self.get_task(task.id), author, f"No longer blocked by {', '.join(removed)}.")
             return self.get_task(task.id)
 
     def assign(self, ref: str, assignee: Optional[str], author: str = "aiboard") -> Task:
@@ -539,11 +615,21 @@ class Board:
         for t in tasks.values():
             if t.meta.get("id") and t.meta["id"] != t.id:
                 problems.append(f"{t.id}: front matter id is {t.meta['id']!r}")
+            for b in t.blocked_by:
+                if b == t.id:
+                    problems.append(f"{t.id} is blocked by itself")
+                elif b not in tasks:
+                    problems.append(f"{t.id} is blocked by missing task {b}")
+            if t.status == "in-progress" and t.blocked:
+                open_ids = [b["id"] for b in t.blockers if b["status"] not in ("done", "cancelled")]
+                problems.append(f"{t.id} is in progress but blocked by {', '.join(open_ids)}")
             if t.sprint:
                 if t.sprint not in sprints:
                     problems.append(f"{t.id} references missing sprint {t.sprint}")
                 elif t.id not in sprints[t.sprint].tasks:
                     problems.append(f"{t.id} says it is in {t.sprint}, but {t.sprint} does not list it")
+        for cycle in _find_cycles({t.id: [b for b in t.blocked_by if b in tasks] for t in tasks.values()}):
+            problems.append("dependency cycle: " + " -> ".join(cycle))
         for s in sprints.values():
             if not (s.path / SPRINT_FILE).exists():
                 problems.append(f"{s.id} has no {SPRINT_FILE}")
@@ -585,6 +671,34 @@ class Board:
             "sprints": sprints,
             "generated": now_iso(),
         }
+
+
+def _find_cycles(graph: Dict[str, List[str]]) -> List[List[str]]:
+    """Return each elementary cycle once, as a list of ids ending where it started."""
+    cycles: List[List[str]] = []
+    seen_keys = set()
+    state: Dict[str, int] = {}
+    stack: List[str] = []
+
+    def visit(node: str) -> None:
+        state[node] = 1
+        stack.append(node)
+        for nxt in graph.get(node, []):
+            if state.get(nxt, 0) == 0:
+                visit(nxt)
+            elif state.get(nxt) == 1:
+                cyc = stack[stack.index(nxt):] + [nxt]
+                key = frozenset(cyc)
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    cycles.append(cyc)
+        stack.pop()
+        state[node] = 2
+
+    for n in sorted(graph):
+        if state.get(n, 0) == 0:
+            visit(n)
+    return cycles
 
 
 def _title_from_body(body: str) -> Optional[str]:

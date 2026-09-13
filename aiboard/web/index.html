@@ -48,6 +48,8 @@
   .card .meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
   .chip { background: #f0f1f3; border-radius: 4px; padding: 1px 6px; }
   .chip.sprint { background: #e9f0fb; color: var(--accent); }
+  .chip.blocked { background: #ffebe6; color: var(--cancel); font-weight: 600; }
+  .chip.blocker { background: #fff7e6; color: #974f0c; }
   .col.dimmed .card { opacity: .55; }
   .sprints { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
   .sprint-card { background: var(--panel); border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 1px rgba(9,30,66,.15); cursor: pointer; }
@@ -222,7 +224,7 @@
     const drag = state.data.read_only ? '' : 'draggable="true"';
     return `<div class="card ${t.priority}" data-task="${t.id}" ${drag}>
       <div class="id">${t.id}</div><div class="title">${esc(t.title)}</div>
-      <div class="meta">${t.sprint ? `<span class="chip sprint">${t.sprint}</span>` : ''}${t.assignee ? `<span class="chip">@${esc(t.assignee)}</span>` : ''}<span class="chip">${t.priority}</span>${labels}</div></div>`;
+      <div class="meta">${t.blocked ? `<span class="chip blocked" title="blocked by ${t.blockers.filter(b => b.status !== 'done' && b.status !== 'cancelled').map(b => b.id).join(', ')}">blocked</span>` : ''}${t.sprint ? `<span class="chip sprint">${t.sprint}</span>` : ''}${t.assignee ? `<span class="chip">@${esc(t.assignee)}</span>` : ''}<span class="chip">${t.priority}</span>${labels}</div></div>`;
   }
   function renderBoard() {
     const d = state.data;
@@ -267,6 +269,7 @@
         <dt>Priority</dt><dd>${ro ? t.priority : `<select data-act="priority">${options(PRIORITIES, t.priority)}</select>`}</dd>
         <dt>Assignee</dt><dd>${ro ? (t.assignee ? esc(t.assignee) : '—') : `<input data-act="assignee" value="${esc(t.assignee || '')}" placeholder="nobody"> <button class="small" data-act="assign-me">me</button>`}</dd>
         <dt>Labels</dt><dd>${(t.labels || []).map(l => `<span class="chip">${esc(l)}</span>`).join(' ') || '—'}</dd>
+        <dt>Blocked by</dt><dd>${(t.blockers || []).map(b => `<a href="#" class="chip ${b.status === 'done' || b.status === 'cancelled' ? '' : 'blocker'}" data-ref="${b.id}" title="${esc(b.title || '')}">${b.id} · ${b.status}</a>`).join(' ')}${ro ? ((t.blockers || []).length ? '' : '—') : ` <input data-act="blocked_by" value="${esc((t.blocked_by || []).join(', '))}" placeholder="T-001, T-002" style="width:160px">`}${t.blocked ? ' <span class="chip blocked">blocked</span>' : ''}</dd>
         <dt>Updated</dt><dd>${t.updated || '—'}</dd>
         <dt>Folder</dt><dd class="path">${esc(t.path)}</dd></dl>
        <div class="md">${md(t.brief)}</div>
@@ -355,6 +358,7 @@
       if (a === 'status') { await mutate(`/api/tasks/${id}/status`, { status: v }, `${id} → ${v}`); showTask(id); }
       else if (a === 'priority') { await mutate(`/api/tasks/${id}/edit`, { priority: v }); showTask(id); }
       else if (a === 'sprint') { await mutate(`/api/tasks/${id}/edit`, { sprint: v }); showTask(id); }
+      else if (a === 'blocked_by') { await mutate(`/api/tasks/${id}/edit`, { blocked_by: v }); showTask(id); }
       else if (a === 'assignee') { await mutate(`/api/tasks/${id}/assign`, { assignee: v }); showTask(id); }
       else if (a === 'sprint-status') { await mutate(`/api/sprints/${id}/status`, { status: v }, `${id} → ${v}`); showSprint(id); }
     } catch (err) {}

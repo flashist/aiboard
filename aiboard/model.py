@@ -221,6 +221,7 @@ class Task:
     meta: Dict[str, Any] = field(default_factory=dict)
     body: str = ""
     worklog: List[WorklogEntry] = field(default_factory=list)
+    blockers: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def sprint(self) -> Optional[str]:
@@ -238,6 +239,23 @@ class Task:
     def folder(self) -> str:
         return self.path.name
 
+    @property
+    def blocked_by(self) -> List[str]:
+        raw = self.meta.get("blocked_by") or []
+        if isinstance(raw, str):
+            raw = [raw]
+        out: List[str] = []
+        for ref in raw:
+            tid = normalize_id(TASK_PREFIX, str(ref))
+            if tid and tid not in out:
+                out.append(tid)
+        return out
+
+    @property
+    def blocked(self) -> bool:
+        """True while any blocker is still open. ``blockers`` is filled in by the store."""
+        return any(b.get("status") not in ("done", "cancelled") for b in self.blockers)
+
     def to_dict(self, include_body: bool = False) -> Dict[str, Any]:
         d: Dict[str, Any] = {
             "id": self.id,
@@ -247,6 +265,9 @@ class Task:
             "priority": self.priority,
             "assignee": self.assignee,
             "labels": list(self.meta.get("labels") or []),
+            "blocked_by": self.blocked_by,
+            "blocked": self.blocked,
+            "blockers": list(self.blockers),
             "created": self.meta.get("created"),
             "updated": self.meta.get("updated"),
             "folder": self.folder,

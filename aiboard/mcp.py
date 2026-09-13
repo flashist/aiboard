@@ -19,7 +19,7 @@ PROTOCOL_VERSION = "2025-06-18"
 
 INSTRUCTIONS = """aiboard is a file-based issue tracker: tasks and sprints are folders, the
 parent folder is the status (backlog, in-progress, done, cancelled).
-Typical loop: list_tasks(status="backlog") -> assign_task -> change_task_status(in-progress)
+Typical loop: list_tasks(status="backlog", unblocked=true) -> assign_task -> change_task_status(in-progress)
 -> get_task (read the brief) -> log_work as you go -> change_task_status(done, note=...).
 Worklogs are append-only; always log decisions and blockers so humans can follow.
 Run check_board when you have edited files by hand."""
@@ -66,10 +66,12 @@ class Server:
             counts = {s: sum(1 for x in snap["tasks"] if x["status"] == s) for s in STATUSES}
             return {"name": snap["name"], "root": snap["root"], "task_counts": counts, "sprints": snap["sprints"]}
 
-        @t("list_tasks", "List tasks (metadata only; use get_task for the brief and worklog).",
-           _schema({"status": STATUS_PROP, "sprint": SPRINT_ID_PROP, "assignee": _str("filter by assignee")}))
-        def list_tasks(status=None, sprint=None, assignee=None):
-            tasks = b.list_tasks(status=status, sprint=sprint)
+        @t("list_tasks", "List tasks (metadata only; use get_task for the brief and worklog). "
+                         "Each task carries blocked_by, blocked (true while a blocker is open) and blockers.",
+           _schema({"status": STATUS_PROP, "sprint": SPRINT_ID_PROP, "assignee": _str("filter by assignee"),
+                    "unblocked": {"type": "boolean", "description": "only tasks that can be started now"}}))
+        def list_tasks(status=None, sprint=None, assignee=None, unblocked=False):
+            tasks = b.list_tasks(status=status, sprint=sprint, unblocked=bool(unblocked))
             if assignee:
                 tasks = [x for x in tasks if x.assignee == assignee]
             return [x.to_dict() for x in tasks]
@@ -87,15 +89,29 @@ class Server:
                "assignee": _str("who works on it"),
                "labels": {"type": "array", "items": {"type": "string"}, "description": "free-form labels"},
                "status": STATUS_PROP,
+               "blocked_by": {"type": "array", "items": ID_PROP, "description": "tasks that must finish first"},
            }, ["title"]))
-        def create_task(title, body="", sprint=None, priority="medium", assignee=None, labels=None, status="backlog"):
+        def create_task(title, body="", sprint=None, priority="medium", assignee=None, labels=None, status="backlog", blocked_by=None):
             return b.create_task(title, body=body, status=status, sprint=sprint, priority=priority,
-                                 assignee=assignee, labels=labels or [], author=self.author).to_dict()
+                                 assignee=assignee, labels=labels or [], author=self.author,
+                                 blocked_by=blocked_by or []).to_dict()
 
-        @t("change_task_status", "Move a task to another status (moves its folder, appends a worklog entry).",
-           _schema({"id": ID_PROP, "status": STATUS_PROP, "note": _str("optional text added to the worklog entry")}, ["id", "status"]))
-        def change_task_status(id, status, note=None):
-            return b.move_task(id, status, author=self.author, note=note).to_dict()
+        @t("change_task_status", "Move a task to another status (moves its folder, appends a worklog entry). "
+                                 "Refuses to start a task that is blocked by open tasks unless force=true.",
+           _schema({"id": ID_PROP, "status": STATUS_PROP, "note": _str("optional text added to the worklog entry"),
+                    "force": {"type": "boolean", "description": "start even if blocked"}}, ["id", "status"]))
+        def change_task_status(id, status, note=None, force=False):
+            return b.move_task(id, status, author=self.author, note=note, force=bool(force)).to_dict()
+
+        @t("block_task", "Record that a task is blocked by other tasks (Jira: 'is blocked by').",
+           _schema({"id": ID_PROP, "blockers": {"type": "array", "items": ID_PROP}}, ["id", "blockers"]))
+        def block_task(id, blockers):
+            return b.block(id, blockers, author=self.author).to_dict()
+
+        @t("unblock_task", "Remove blockers from a task.",
+           _schema({"id": ID_PROP, "blockers": {"type": "array", "items": ID_PROP}}, ["id", "blockers"]))
+        def unblock_task(id, blockers):
+            return b.unblock(id, blockers, author=self.author).to_dict()
 
         @t("assign_task", "Set or clear the assignee of a task.",
            _schema({"id": ID_PROP, "assignee": _str("name; omit or empty to unassign")}, ["id"]))
@@ -110,7 +126,8 @@ class Server:
 
         @t("edit_task", "Change task metadata. Only the fields given are changed; sprint='' detaches.",
            _schema({"id": ID_PROP, "title": _str("new title"), "priority": _str("low | medium | high", enum=PRIORITIES),
-                    "sprint": SPRINT_ID_PROP, "labels": {"type": "array", "items": {"type": "string"}}}, ["id"]))
+                    "sprint": SPRINT_ID_PROP, "labels": {"type": "array", "items": {"type": "string"}},
+                    "blocked_by": {"type": "array", "items": ID_PROP, "description": "replaces all blockers"}}, ["id"]))
         def edit_task(id, **fields):
             if "sprint" in fields and not fields["sprint"]:
                 fields["sprint"] = None

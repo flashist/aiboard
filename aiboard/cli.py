@@ -49,13 +49,14 @@ def _read_body(args: argparse.Namespace) -> str:
 def _task_row(t) -> str:
     sprint = t.sprint or "-"
     who = t.assignee or "-"
-    return f"{t.id:<6} {t.status:<12} {t.priority:<7} {sprint:<6} {who:<12} {t.title}"
+    flag = "blocked" if t.blocked else ""
+    return f"{t.id:<6} {t.status:<12} {t.priority:<7} {sprint:<6} {who:<12} {flag:<8} {t.title}"
 
 
 def _task_table(tasks) -> str:
     if not tasks:
         return "(no tasks)"
-    header = f"{'ID':<6} {'STATUS':<12} {'PRIO':<7} {'SPRINT':<6} {'ASSIGNEE':<12} TITLE"
+    header = f"{'ID':<6} {'STATUS':<12} {'PRIO':<7} {'SPRINT':<6} {'ASSIGNEE':<12} {'':<8} TITLE"
     return "\n".join([header] + [_task_row(t) for t in tasks])
 
 
@@ -90,13 +91,16 @@ def cmd_task_new(args):
     t = board.create_task(
         title=args.title, body=_read_body(args), status=args.status, sprint=args.sprint,
         priority=args.priority, assignee=args.assignee, labels=args.label or [], author=args.by,
+        blocked_by=args.blocked_by or [],
     )
     _emit(args, t.to_dict(), f"Created {t.id} in {t.status}: {t.path}")
 
 
 def cmd_task_list(args):
     board = _board(args)
-    tasks = board.list_tasks(status=args.status, sprint=args.sprint)
+    tasks = board.list_tasks(status=args.status, sprint=args.sprint, unblocked=args.unblocked)
+    if args.blocked:
+        tasks = [t for t in tasks if t.blocked]
     if args.assignee:
         tasks = [t for t in tasks if t.assignee == args.assignee]
     _emit(args, [t.to_dict() for t in tasks], _task_table(tasks))
@@ -112,6 +116,8 @@ def cmd_task_show(args):
         f"priority: {t.priority}",
         f"assignee: {t.assignee or '-'}",
         f"labels:   {', '.join(t.meta.get('labels') or []) or '-'}",
+        "blocked:  " + (", ".join(f"{b['id']} ({b['status']})" for b in t.blockers) if t.blockers else "-")
+        + ("  <- BLOCKED" if t.blocked else ""),
         f"folder:   {t.path}",
         "",
         t.body.strip(),
@@ -125,8 +131,20 @@ def cmd_task_show(args):
 
 def cmd_task_change_status(args):
     board = _board(args)
-    t = board.move_task(args.id, args.status, author=args.by, note=args.note)
+    t = board.move_task(args.id, args.status, author=args.by, note=args.note, force=args.force)
     _emit(args, t.to_dict(), f"{t.id} is now {t.status}: {t.path}")
+
+
+def cmd_task_block(args):
+    board = _board(args)
+    t = board.block(args.id, args.blockers, author=args.by)
+    _emit(args, t.to_dict(), f"{t.id} is blocked by {', '.join(t.blocked_by) or 'nothing'}")
+
+
+def cmd_task_unblock(args):
+    board = _board(args)
+    t = board.unblock(args.id, args.blockers, author=args.by)
+    _emit(args, t.to_dict(), f"{t.id} is blocked by {', '.join(t.blocked_by) or 'nothing'}")
 
 
 def cmd_task_assign(args):
@@ -155,6 +173,8 @@ def cmd_task_edit(args):
         fields["sprint"] = args.sprint or None
     if args.label is not None:
         fields["labels"] = args.label
+    if args.blocked_by is not None:
+        fields["blocked_by"] = [b for b in args.blocked_by if b]
     if not fields:
         raise BoardError("nothing to change")
     t = board.update_task(args.id, **fields)
@@ -321,6 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--priority", default="medium", choices=PRIORITIES)
     s.add_argument("--assignee")
     s.add_argument("--label", action="append", help="repeatable")
+    s.add_argument("--blocked-by", action="append", metavar="ID", help="repeatable; task that must finish first")
     s.add_argument("--by", default=DEFAULT_AUTHOR, help="author for the worklog entry")
     s.set_defaults(func=cmd_task_new)
 
@@ -328,6 +349,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--status")
     s.add_argument("--sprint")
     s.add_argument("--assignee")
+    s.add_argument("--unblocked", action="store_true", help="only tasks whose blockers are all done or cancelled")
+    s.add_argument("--blocked", action="store_true", help="only tasks that are currently blocked")
     s.set_defaults(func=cmd_task_list)
 
     s = task.add_parser("show", help="show brief and worklog")
@@ -338,8 +361,21 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.add_argument("status", help="backlog | in-progress | done | cancelled")
     s.add_argument("--note", help="extra text for the worklog entry")
+    s.add_argument("--force", action="store_true", help="start even if blocked by open tasks")
     s.add_argument("--by", default=DEFAULT_AUTHOR)
     s.set_defaults(func=cmd_task_change_status)
+
+    s = task.add_parser("block", help="mark a task as blocked by other tasks (Jira: 'is blocked by')")
+    s.add_argument("id")
+    s.add_argument("blockers", nargs="+", metavar="BLOCKER")
+    s.add_argument("--by", default=DEFAULT_AUTHOR)
+    s.set_defaults(func=cmd_task_block)
+
+    s = task.add_parser("unblock", help="remove blockers from a task")
+    s.add_argument("id")
+    s.add_argument("blockers", nargs="+", metavar="BLOCKER")
+    s.add_argument("--by", default=DEFAULT_AUTHOR)
+    s.set_defaults(func=cmd_task_unblock)
 
     s = task.add_parser("assign", help="set the assignee (records it in the worklog)")
     s.add_argument("id")
@@ -360,6 +396,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--assignee", help="use '' to clear")
     s.add_argument("--sprint", help="use '' to detach")
     s.add_argument("--label", action="append", help="repeatable; replaces all labels")
+    s.add_argument("--blocked-by", action="append", metavar="ID", help="repeatable; replaces all blockers (use '' to clear)")
     s.set_defaults(func=cmd_task_edit)
 
     # sprints

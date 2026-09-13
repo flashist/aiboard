@@ -66,15 +66,18 @@ def make_handler(board: Board, read_only: bool = False):
                 elif len(parts) == 4 and parts[:2] == ["api", "tasks"]:
                     tid, action = parts[2], parts[3]
                     if action == "status":
-                        t = board.move_task(tid, str(body.get("status") or ""), author=author, note=body.get("note") or None)
+                        t = board.move_task(tid, str(body.get("status") or ""), author=author, note=body.get("note") or None,
+                                            force=bool(body.get("force")))
                     elif action == "assign":
                         t = board.assign(tid, (body.get("assignee") or "").strip() or None, author=author)
                     elif action == "log":
                         t = board.log(tid, str(body.get("message") or "").strip() or _fail("message is required"), author=author)
                     elif action == "edit":
-                        fields = {k: body[k] for k in ("title", "priority", "sprint", "labels") if k in body}
+                        fields = {k: body[k] for k in ("title", "priority", "sprint", "labels", "blocked_by") if k in body}
                         if "labels" in fields:
                             fields["labels"] = _labels(fields["labels"])
+                        if "blocked_by" in fields:
+                            fields["blocked_by"] = _labels(fields["blocked_by"])
                         if "sprint" in fields and not fields["sprint"]:
                             fields["sprint"] = None
                         t = board.update_task(tid, **fields)

@@ -70,6 +70,20 @@ class McpTests(unittest.TestCase):
         # text content is JSON too, for clients that ignore structuredContent
         self.assertEqual(json.loads(self.call("get_task", id="T-001")["content"][0]["text"])["id"], "T-001")
 
+    def test_dependencies(self):
+        self.call("create_task", title="A")
+        b = self.call("create_task", title="B", blocked_by=["T-001"])["structuredContent"]
+        self.assertTrue(b["blocked"])
+        ready = self.call("list_tasks", unblocked=True)["structuredContent"]["result"]
+        self.assertEqual([t["id"] for t in ready], ["T-001"])
+        r = self.rpc("tools/call", {"name": "change_task_status", "arguments": {"id": "T-002", "status": "in-progress"}})["result"]
+        self.assertTrue(r["isError"])
+        self.assertIn("blocked", r["content"][0]["text"])
+        self.call("unblock_task", id="T-002", blockers=["T-001"])
+        self.assertFalse(self.call("get_task", id="T-002")["structuredContent"]["blocked"])
+        self.assertEqual(self.call("block_task", id="T-002", blockers=["T-001"])["structuredContent"]["blocked_by"], ["T-001"])
+        self.assertEqual(self.call("edit_task", id="T-002", blocked_by=[])["structuredContent"]["blocked_by"], [])
+
     def test_errors(self):
         r = self.rpc("tools/call", {"name": "get_task", "arguments": {"id": "T-404"}})["result"]
         self.assertTrue(r["isError"])
