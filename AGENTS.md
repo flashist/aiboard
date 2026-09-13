@@ -33,4 +33,6 @@ EOF
 - Never edit a task's status inside `brief.md`; status is the folder. Use `aiboard task change-status` or `mv`.
 - `worklog.md` is append-only. Do not rewrite history.
 - One task per folder, one folder per task. Ids (`T-001`) are permanent; the slug after the id is cosmetic.
-- If you edit files by hand, run `aiboard check` before you finish.
+- If you edit files by hand, run `aiboard check --fix` before you finish. It repairs stale sprint checklists and reports anything else.
+- With `--json`, every error (including bad arguments) is `{"error": "..."}` on stdout with exit code 1.
+- New ids are highest existing number + 1. If you create a task folder by hand, use the next free number.

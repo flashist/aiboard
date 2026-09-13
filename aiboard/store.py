@@ -443,8 +443,12 @@ class Board:
         }
 
     # ----------------------------------------------------------------- check
-    def check(self) -> List[str]:
-        """Return a list of human-readable consistency problems."""
+    def check(self, fix: bool = False) -> List[str]:
+        """Return a list of human-readable consistency problems.
+
+        With ``fix=True`` the repairable ones (stale sprint task lists) are
+        repaired and reported as fixed.
+        """
         self._require()
         problems: List[str] = []
         tasks = {t.id: t for t in self.list_tasks()}
@@ -478,6 +482,15 @@ class Board:
                 open_tasks = [tid for tid in s.tasks if tid in tasks and tasks[tid].status in ("backlog", "in-progress")]
                 if open_tasks:
                     problems.append(f"{s.id} is done but still has open tasks: {', '.join(open_tasks)}")
+            fresh = self._render_sprint_task_list(s.tasks, s.body)
+            if fresh.strip() != s.body.strip():
+                if fix:
+                    self.refresh_sprint(s.id)
+                    problems.append(f"{s.id}: task list in {SPRINT_FILE} was stale (fixed)")
+                else:
+                    problems.append(
+                        f"{s.id}: task list in {SPRINT_FILE} is stale; run `aiboard sprint refresh {s.id}` or `aiboard check --fix`"
+                    )
         return problems
 
     # --------------------------------------------------------------- summary

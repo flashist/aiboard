@@ -24,6 +24,11 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(body, "hello")
         self.assertEqual(parse_front_matter("no front matter"), ({}, "no front matter"))
 
+    def test_quotes_and_backslashes_roundtrip(self):
+        for title in ('Fix "quoted" bug: x', "back\\slash", 'both \\"', "it's"):
+            meta, _ = parse_front_matter(dump_front_matter({"title": title}, ""))
+            self.assertEqual(meta["title"], title)
+
     def test_ids_and_statuses(self):
         for ref in ("1", "T-1", "t-001", "T-001-some-slug"):
             self.assertEqual(normalize_id("T", ref), "T-001")
@@ -120,6 +125,22 @@ class BoardTests(unittest.TestCase):
         self.assertTrue(any("missing sprint S-009" in p for p in problems))
         self.assertTrue(any("says sprint=S-009" in p for p in problems))
 
+    def test_quoted_title_survives_store(self):
+        t = self.board.create_task('Fix "quoted" bug: x')
+        self.assertEqual(self.board.get_task(t.id).title, 'Fix "quoted" bug: x')
+
+    def test_check_detects_and_fixes_stale_sprint_list(self):
+        self.board.create_sprint("Sprint 1")
+        t = self.board.create_task("One", sprint="S-001")
+        # move by hand, as the README allows
+        shutil.move(str(t.path), str(self.tmp / "tasks/done" / t.path.name))
+        problems = self.board.check()
+        self.assertTrue(any("stale" in p and "S-001" in p for p in problems), problems)
+        problems = self.board.check(fix=True)
+        self.assertTrue(any(p.endswith("(fixed)") for p in problems), problems)
+        self.assertEqual(self.board.check(), [])
+        self.assertIn("- [x] T-001 — One (done)", (self.board.get_sprint("S-001").path / "sprint.md").read_text())
+
     def test_hand_made_task_is_readable(self):
         """Agents may create folders by hand; the tool must still read them."""
         d = self.tmp / "tasks/in-progress/T-007-hand-made"
@@ -211,6 +232,34 @@ class CliTests(unittest.TestCase):
         code, out = self.run_cli("--json", "task", "show", "T-999")
         self.assertEqual(code, 1)
         self.assertIn("error", json.loads(out))
+        code, out = self.run_cli("--json", "task", "change-status", "T-001", "kinda-done")
+        self.assertEqual(code, 1)
+        self.assertIn("unknown status", json.loads(out)["error"])
+        self.assertEqual(self.run_cli("task", "new", "Alias status", "--status", "wip")[0], 0)
+        self.assertEqual(self.run_cli("--json", "task", "list", "--status", "in progress")[0], 0)
+
+    def test_argparse_errors_are_json(self):
+        import contextlib
+        import io
+        import sys as _sys
+
+        self.run_cli("init")
+        out = io.StringIO()
+        argv_backup = _sys.argv
+        _sys.argv = ["aiboard", "--json", "task", "new", "x", "--priority", "urgent"]
+        try:
+            with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as cm:
+                main(["--root", str(self.tmp), "--json", "task", "new", "x", "--priority", "urgent"])
+        finally:
+            _sys.argv = argv_backup
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("invalid choice", json.loads(out.getvalue())["error"])
+
+    def test_board_truncates_with_ellipsis(self):
+        self.run_cli("init")
+        self.run_cli("task", "new", "A very long title that certainly does not fit into the column")
+        code, out = self.run_cli("board")
+        self.assertIn("…", out)
 
 
 if __name__ == "__main__":

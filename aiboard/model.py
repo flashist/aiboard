@@ -82,7 +82,10 @@ def _parse_scalar(raw: str) -> Any:
     if raw in ("false", "False"):
         return False
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
-        return raw[1:-1]
+        inner = raw[1:-1]
+        if raw[0] == '"':
+            inner = inner.replace('\\"', '"').replace("\\\\", "\\")
+        return inner
     if raw.startswith("[") and raw.endswith("]"):
         inner = raw[1:-1].strip()
         if not inner:
@@ -146,7 +149,7 @@ def _dump_scalar(value: Any) -> str:
         return str(value)
     s = str(value)
     if s == "" or s != s.strip() or any(c in s for c in ":#[]{}") or s.lower() in ("true", "false", "null"):
-        return '"' + s.replace('"', '\\"') + '"'
+        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
     return s
 
 

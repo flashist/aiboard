@@ -14,6 +14,16 @@ from .store import Board, BoardError
 DEFAULT_AUTHOR = os.environ.get("AIBOARD_AUTHOR") or os.environ.get("USER") or "agent"
 
 
+class Parser(argparse.ArgumentParser):
+    """argparse errors honour --json too, so agents have one place to look for errors."""
+
+    def error(self, message):
+        if "--json" in sys.argv[1:]:
+            print(json.dumps({"error": message}))
+            sys.exit(1)
+        super().error(message)
+
+
 def _board(args: argparse.Namespace) -> Board:
     root = args.root or os.environ.get("AIBOARD_ROOT") or "."
     return Board(Path(root))
@@ -192,6 +202,12 @@ def cmd_sprint_change_status(args):
     _emit(args, s.to_dict(), f"{s.id} is now {s.status}: {s.path}")
 
 
+def cmd_sprint_refresh(args):
+    board = _board(args)
+    s = board.refresh_sprint(args.id)
+    _emit(args, s.to_dict(), f"Re-rendered task list in {s.path / 'sprint.md'}")
+
+
 def cmd_sprint_add(args):
     board = _board(args)
     s = board.sprint_add(args.id, args.tasks)
@@ -223,7 +239,9 @@ def cmd_board(args):
             cell = ""
             if i < len(columns[s]):
                 t = columns[s][i]
-                cell = f"{t.id} {t.title}"[: width - 2]
+                cell = f"{t.id} {t.title}"
+                if len(cell) > width - 2:
+                    cell = cell[: width - 3] + "…"
             row += f"{cell:<{width}}"
         print(row.rstrip())
     if not height:
@@ -232,10 +250,11 @@ def cmd_board(args):
 
 def cmd_check(args):
     board = _board(args)
-    problems = board.check()
-    _emit(args, {"ok": not problems, "problems": problems},
+    problems = board.check(fix=args.fix)
+    remaining = [p for p in problems if not p.endswith("(fixed)")]
+    _emit(args, {"ok": not remaining, "problems": problems},
           "OK: board is consistent" if not problems else "\n".join(f"- {p}" for p in problems))
-    if problems:
+    if remaining:
         sys.exit(1)
 
 
@@ -249,21 +268,21 @@ def cmd_serve(args):
 # ------------------------------------------------------------------- parser
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="aiboard", description="File-based issue tracker for AI agents and humans.")
+    p = Parser(prog="aiboard", description="File-based issue tracker for AI agents and humans.")
     p.add_argument("--root", help="board root (default: $AIBOARD_ROOT or current directory)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd", required=True, parser_class=Parser)
 
     sub.add_parser("init", help="create the folder skeleton").set_defaults(func=cmd_init)
 
     # tasks
-    task = sub.add_parser("task", help="manage tasks").add_subparsers(dest="task_cmd", required=True)
+    task = sub.add_parser("task", help="manage tasks").add_subparsers(dest="task_cmd", required=True, parser_class=Parser)
 
     s = task.add_parser("new", help="create a task")
     s.add_argument("title")
     s.add_argument("--body", help="description text (Markdown)")
     s.add_argument("--body-file", help="read description from file ('-' for stdin)")
-    s.add_argument("--status", default="backlog", choices=STATUSES)
+    s.add_argument("--status", default="backlog", help="backlog (default) | in-progress | done | cancelled")
     s.add_argument("--sprint", help="attach to sprint, e.g. S-001")
     s.add_argument("--priority", default="medium", choices=PRIORITIES)
     s.add_argument("--assignee")
@@ -271,8 +290,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--by", default=DEFAULT_AUTHOR, help="author for the worklog entry")
     s.set_defaults(func=cmd_task_new)
 
-    s = task.add_parser("list", help="list tasks")
-    s.add_argument("--status", choices=STATUSES)
+    s = task.add_parser("list", help="list tasks (metadata only; use `show` for the brief)")
+    s.add_argument("--status")
     s.add_argument("--sprint")
     s.add_argument("--assignee")
     s.set_defaults(func=cmd_task_list)
@@ -310,20 +329,20 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_task_edit)
 
     # sprints
-    sprint = sub.add_parser("sprint", help="manage sprints").add_subparsers(dest="sprint_cmd", required=True)
+    sprint = sub.add_parser("sprint", help="manage sprints").add_subparsers(dest="sprint_cmd", required=True, parser_class=Parser)
 
     s = sprint.add_parser("new", help="create a sprint")
     s.add_argument("title")
     s.add_argument("--goal")
     s.add_argument("--body", help="description text (Markdown)")
     s.add_argument("--body-file")
-    s.add_argument("--status", default="backlog", choices=STATUSES)
+    s.add_argument("--status", default="backlog")
     s.add_argument("--start", help="YYYY-MM-DD")
     s.add_argument("--end", help="YYYY-MM-DD")
     s.set_defaults(func=cmd_sprint_new)
 
     s = sprint.add_parser("list", help="list sprints with progress")
-    s.add_argument("--status", choices=STATUSES)
+    s.add_argument("--status")
     s.set_defaults(func=cmd_sprint_list)
 
     s = sprint.add_parser("show", help="sprint status and its tasks")
@@ -334,6 +353,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.add_argument("status")
     s.set_defaults(func=cmd_sprint_change_status)
+
+    s = sprint.add_parser("refresh", help="re-render the task checklist in sprint.md after hand edits")
+    s.add_argument("id")
+    s.set_defaults(func=cmd_sprint_refresh)
 
     s = sprint.add_parser("add", help="attach tasks to a sprint")
     s.add_argument("id")
@@ -350,7 +373,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--sprint", help="only tasks of this sprint")
     s.set_defaults(func=cmd_board)
 
-    sub.add_parser("check", help="validate consistency between tasks and sprints").set_defaults(func=cmd_check)
+    s = sub.add_parser("check", help="validate consistency between tasks and sprints")
+    s.add_argument("--fix", action="store_true", help="repair what can be repaired (stale sprint task lists)")
+    s.set_defaults(func=cmd_check)
 
     s = sub.add_parser("serve", help="run the web board")
     s.add_argument("--host", default="127.0.0.1")
@@ -365,14 +390,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
     try:
         args.func(args)
-    except BoardError as e:
+    except (BoardError, ValueError) as e:
         if args.json:
             print(json.dumps({"error": str(e)}))
         else:
             print(f"error: {e}", file=sys.stderr)
-        return 1
-    except ValueError as e:
-        print(f"error: {e}", file=sys.stderr)
         return 1
     return 0
 

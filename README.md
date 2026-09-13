@@ -46,7 +46,10 @@ aiboard board                                    # kanban in the terminal
 aiboard serve                                    # web board at http://127.0.0.1:8484
 ```
 
-Every command accepts `--json` for machine-readable output, and `--root PATH`
+Every command accepts `--json` for machine-readable output. With `--json`, every
+failure, including bad arguments, prints `{"error": "..."}` to stdout and exits 1.
+`task list` returns metadata only; `task show` adds the brief and worklog.
+`--root PATH`
 (or `AIBOARD_ROOT`) to point at a board outside the current directory.
 `AIBOARD_AUTHOR` sets the default author for worklog entries.
 
@@ -65,8 +68,9 @@ Every command accepts `--json` for machine-readable output, and `--root PATH`
 | `aiboard sprint new TITLE [--goal ...] [--start D] [--end D]` | Create a sprint in `backlog` |
 | `aiboard sprint list` / `show S-001` / `move S-001 STATUS` | Inspect and move sprints |
 | `aiboard sprint add S-001 T-001 T-002` / `remove ...` | Attach or detach tasks |
+| `aiboard sprint refresh S-001` | Re-render the `## Tasks` checklist in `sprint.md` after hand edits |
 | `aiboard board [--sprint S-001]` | Terminal kanban |
-| `aiboard check` | Report inconsistencies (exit 1 if any) |
+| `aiboard check [--fix]` | Report inconsistencies (exit 1 if any); `--fix` repairs stale sprint checklists |
 | `aiboard serve [--port 8484]` | Read-only web board (auto-refreshes) |
 
 IDs are forgiving: `T-001`, `T-1`, `1`, or the full folder name all work.
@@ -154,6 +158,12 @@ Everything the CLI does can be done by hand, which is the point:
 - **Create a task:** make `tasks/backlog/T-00N-my-slug/brief.md` with the front matter above. `worklog.md` is optional but recommended.
 - **Change status:** `mv tasks/backlog/T-00N-* tasks/in-progress/` and append a line to the worklog.
 - **Attach to a sprint:** add the id under `tasks:` in `sprint.md` and set `sprint:` in the brief.
+
+Ids are allocated as *highest existing number + 1* across all status
+folders, so a hand-made `T-100` makes the next CLI task `T-101`. Pick the next
+free number when creating by hand. After moving folders by hand, run
+`aiboard sprint refresh S-00N` (or `aiboard check --fix`) so the checklist in
+`sprint.md` matches reality.
 
 Run `aiboard check` afterwards to confirm the board is consistent. See
 `AGENTS.md` for the recommended agent workflow.
