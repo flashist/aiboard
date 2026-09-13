@@ -50,6 +50,9 @@
   .chip.sprint { background: #e9f0fb; color: var(--accent); }
   .chip.blocked { background: #ffebe6; color: var(--cancel); font-weight: 600; }
   .chip.blocker { background: #fff7e6; color: #974f0c; }
+  .chip.stale { background: #fff7e6; color: #974f0c; font-weight: 600; }
+  .chip.comments { background: #eae6ff; color: #403294; }
+  .comments .entry::before { background: #6554c0; }
   .col.dimmed .card { opacity: .55; }
   .sprints { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
   .sprint-card { background: var(--panel); border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 1px rgba(9,30,66,.15); cursor: pointer; }
@@ -224,7 +227,7 @@
     const drag = state.data.read_only ? '' : 'draggable="true"';
     return `<div class="card ${t.priority}" data-task="${t.id}" ${drag}>
       <div class="id">${t.id}</div><div class="title">${esc(t.title)}</div>
-      <div class="meta">${t.blocked ? `<span class="chip blocked" title="blocked by ${t.blockers.filter(b => b.status !== 'done' && b.status !== 'cancelled').map(b => b.id).join(', ')}">blocked</span>` : ''}${t.sprint ? `<span class="chip sprint">${t.sprint}</span>` : ''}${t.assignee ? `<span class="chip">@${esc(t.assignee)}</span>` : ''}<span class="chip">${t.priority}</span>${labels}</div></div>`;
+      <div class="meta">${t.blocked ? `<span class="chip blocked" title="blocked by ${t.blockers.filter(b => b.status !== 'done' && b.status !== 'cancelled').map(b => b.id).join(', ')}">blocked</span>` : ''}${t.stale ? `<span class="chip stale" title="no activity since ${esc(t.last_activity || '?')}">stale</span>` : ''}${t.comments_count ? `<span class="chip comments" title="${t.comments_count} comments">💬 ${t.comments_count}</span>` : ''}${t.sprint ? `<span class="chip sprint">${t.sprint}</span>` : ''}${t.assignee ? `<span class="chip">@${esc(t.assignee)}</span>` : ''}<span class="chip">${t.priority}</span>${labels}</div></div>`;
   }
   function renderBoard() {
     const d = state.data;
@@ -261,7 +264,9 @@
     let t; try { t = await api('/api/tasks/' + id); } catch (e) { flash(e.message, true); return; }
     state.open = { kind: 'task', id: t.id };
     const ro = state.data.read_only;
-    const log = t.worklog.slice().reverse().map(e => `<div class="entry"><span class="when">${esc(e.timestamp)}</span><span class="who">${esc(e.author)}</span><div class="md">${md(e.text)}</div></div>`).join('');
+    const entry = e => `<div class="entry"><span class="when">${esc(e.timestamp)}</span><span class="who">${esc(e.author)}</span><div class="md">${md(e.text)}</div></div>`;
+    const log = t.worklog.slice().reverse().map(entry).join('');
+    const comments = (t.comments || []).slice().reverse().map(entry).join('');
     openDrawer(`<span class="badge ${t.status}">${t.status}</span><h2>${t.id} · ${esc(t.title)}</h2>`,
       `<dl class="kv">
         <dt>Status</dt><dd>${ro ? t.status : `<select data-act="status">${options(STATUSES, t.status)}</select>`}</dd>
@@ -270,9 +275,12 @@
         <dt>Assignee</dt><dd>${ro ? (t.assignee ? esc(t.assignee) : '—') : `<input data-act="assignee" value="${esc(t.assignee || '')}" placeholder="nobody"> <button class="small" data-act="assign-me">me</button>`}</dd>
         <dt>Labels</dt><dd>${(t.labels || []).map(l => `<span class="chip">${esc(l)}</span>`).join(' ') || '—'}</dd>
         <dt>Blocked by</dt><dd>${(t.blockers || []).map(b => `<a href="#" class="chip ${b.status === 'done' || b.status === 'cancelled' ? '' : 'blocker'}" data-ref="${b.id}" title="${esc(b.title || '')}">${b.id} · ${b.status}</a>`).join(' ')}${ro ? ((t.blockers || []).length ? '' : '—') : ` <input data-act="blocked_by" value="${esc((t.blocked_by || []).join(', '))}" placeholder="T-001, T-002" style="width:160px">`}${t.blocked ? ' <span class="chip blocked">blocked</span>' : ''}</dd>
-        <dt>Updated</dt><dd>${t.updated || '—'}</dd>
+        <dt>Activity</dt><dd>${t.last_activity || '—'}${t.stale ? ' <span class="chip stale">stale</span>' : ''}</dd>
         <dt>Folder</dt><dd class="path">${esc(t.path)}</dd></dl>
        <div class="md">${md(t.brief)}</div>
+       <h2 style="margin-top:28px">Comments <span class="status">(${(t.comments || []).length})</span></h2>
+       ${ro ? '' : `<div class="logform"><textarea id="commentText" placeholder="Ask a question, leave a review note, or answer one. Agents read this."></textarea><div class="actions"><button class="primary small" data-act="comment">Comment</button></div></div>`}
+       <div class="log comments" style="margin-top:14px">${comments || '<div class="empty">no comments</div>'}</div>
        <h2 style="margin-top:28px">Worklog <span class="status">(${t.worklog.length})</span></h2>
        ${ro ? '' : `<div class="logform"><textarea id="logText" placeholder="What did you do or decide? Markdown is fine."></textarea><div class="actions"><button class="primary small" data-act="log">Add entry</button></div></div>`}
        <div class="log" style="margin-top:14px">${log || '<div class="empty">empty</div>'}</div>`);
@@ -342,6 +350,7 @@
     if (act) {
       const a = act.dataset.act; const id = state.open && state.open.id;
       if (a === 'cancel-modal') return closeModal();
+      if (a === 'comment') { const text = $('#commentText').value.trim(); if (!text) return; await mutate(`/api/tasks/${id}/comment`, { message: text }, 'commented').then(() => showTask(id)).catch(() => {}); return; }
       if (a === 'log') { const text = $('#logText').value.trim(); if (!text) return; await mutate(`/api/tasks/${id}/log`, { message: text }, 'logged').then(() => showTask(id)).catch(() => {}); return; }
       if (a === 'assign-me') { const me = author(); if (me === 'web') { flash('type your name in the header first', true); return; } await mutate(`/api/tasks/${id}/assign`, { assignee: me, force: true }).then(() => showTask(id)).catch(() => {}); return; }
       if (a === 'new-task-in-sprint') { newTaskForm(act.dataset.sprint); return; }

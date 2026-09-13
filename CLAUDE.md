@@ -17,8 +17,9 @@ Working loop:
 2. Take it: `aiboard task start T-007` (atomic claim + in-progress; if it fails, another agent got there first: pick the next task)
 3. Read the brief: `aiboard --json task show T-007`
 4. Log as you go: `aiboard task log T-007 "Implemented X. Next: Y."` (use `-` to pipe Markdown via stdin)
-5. Finish: `aiboard task change-status T-007 done --note "PR #12"` (or `cancelled --note "why"`)
-6. Verify: `aiboard check` (or `aiboard check --fix` after editing files by hand)
+5. Need a human? `aiboard task comment T-007 "Question: ..."` and move on; answers arrive as comments (`task show`).
+6. Finish: `aiboard task change-status T-007 done --note "PR #12"` (or `cancelled --note "why"`). Read the comments first; a reviewer may have left notes.
+7. Verify: `aiboard check` (or `aiboard check --fix` after editing files by hand)
 
 Create work with `aiboard task new "Title" --sprint S-001 --priority high --body-file -`;
 add `--blocked-by T-003` when another task must finish first (or later: `aiboard task block T-009 T-003`).

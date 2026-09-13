@@ -23,6 +23,7 @@ Typical loop: list_tasks(status="backlog", unblocked=true) -> start_task (atomic
 another agent got there first: pick the next one) -> get_task (read the brief) -> log_work as you go
 -> change_task_status(done, note=...).
 Worklogs are append-only; always log decisions and blockers so humans can follow.
+Questions for humans go to comment_task, not the worklog; re-read get_task for answers.
 Run check_board when you have edited files by hand."""
 
 
@@ -70,14 +71,16 @@ class Server:
         @t("list_tasks", "List tasks (metadata only; use get_task for the brief and worklog). "
                          "Each task carries blocked_by, blocked (true while a blocker is open) and blockers.",
            _schema({"status": STATUS_PROP, "sprint": SPRINT_ID_PROP, "assignee": _str("filter by assignee"),
-                    "unblocked": {"type": "boolean", "description": "only tasks that can be started now"}}))
-        def list_tasks(status=None, sprint=None, assignee=None, unblocked=False):
-            tasks = b.list_tasks(status=status, sprint=sprint, unblocked=bool(unblocked))
+                    "unblocked": {"type": "boolean", "description": "only tasks that can be started now"},
+                    "stale": {"type": "boolean", "description": "only in-progress tasks with no recent activity"}}))
+        def list_tasks(status=None, sprint=None, assignee=None, unblocked=False, stale=False):
+            tasks = b.list_tasks(status=status, sprint=sprint, unblocked=bool(unblocked), stale=bool(stale))
             if assignee:
                 tasks = [x for x in tasks if x.assignee == assignee]
             return [x.to_dict() for x in tasks]
 
-        @t("get_task", "Full task: metadata, brief (Markdown) and worklog entries.", _schema({"id": ID_PROP}, ["id"]))
+        @t("get_task", "Full task: metadata, brief (Markdown), worklog entries and comments (discussion with humans; "
+                       "check it for answers and review notes).", _schema({"id": ID_PROP}, ["id"]))
         def get_task(id):
             return b.get_task(id).to_dict(include_body=True)
 
@@ -132,6 +135,13 @@ class Server:
         def log_work(id, message):
             task = b.log(id, message, author=self.author)
             return {"id": task.id, "entries": len(task.worklog), "last": task.worklog[-1].to_dict()}
+
+        @t("comment_task", "Add to the task's discussion, separate from the worklog: ask a human a question, leave a review "
+                           "note, or answer one. Humans see comments on the web board.",
+           _schema({"id": ID_PROP, "message": _str("Markdown text")}, ["id", "message"]))
+        def comment_task(id, message):
+            task = b.comment(id, message, author=self.author)
+            return {"id": task.id, "comments": len(task.comments), "last": task.comments[-1].to_dict()}
 
         @t("edit_task", "Change task metadata. Only the fields given are changed; sprint='' detaches.",
            _schema({"id": ID_PROP, "title": _str("new title"), "priority": _str("low | medium | high", enum=PRIORITIES),

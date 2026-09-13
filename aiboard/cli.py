@@ -49,7 +49,7 @@ def _read_body(args: argparse.Namespace) -> str:
 def _task_row(t) -> str:
     sprint = t.sprint or "-"
     who = t.assignee or "-"
-    flag = "blocked" if t.blocked else ""
+    flag = "blocked" if t.blocked else ("stale" if t.stale else "")
     return f"{t.id:<6} {t.status:<12} {t.priority:<7} {sprint:<6} {who:<12} {flag:<8} {t.title}"
 
 
@@ -98,7 +98,7 @@ def cmd_task_new(args):
 
 def cmd_task_list(args):
     board = _board(args)
-    tasks = board.list_tasks(status=args.status, sprint=args.sprint, unblocked=args.unblocked)
+    tasks = board.list_tasks(status=args.status, sprint=args.sprint, unblocked=args.unblocked, stale=args.stale)
     if args.blocked:
         tasks = [t for t in tasks if t.blocked]
     if args.assignee:
@@ -122,6 +122,12 @@ def cmd_task_show(args):
         "",
         t.body.strip(),
     ]
+    if t.stale:
+        lines.insert(2, f"STALE: no activity since {t.last_activity}")
+    if t.comments:
+        lines += ["", "--- comments ---"]
+        for e in t.comments:
+            lines.append(f"[{e.timestamp}] {e.author}: {e.text}")
     if t.worklog:
         lines += ["", "--- worklog ---"]
         for e in t.worklog:
@@ -165,6 +171,13 @@ def cmd_task_log(args):
     message = args.message if args.message != "-" else sys.stdin.read()
     t = board.log(args.id, message, author=args.by)
     _emit(args, t.to_dict(include_body=True), f"Logged to {t.id} ({len(t.worklog)} entries)")
+
+
+def cmd_task_comment(args):
+    board = _board(args)
+    message = args.message if args.message != "-" else sys.stdin.read()
+    t = board.comment(args.id, message, author=args.by)
+    _emit(args, t.to_dict(include_body=True), f"Commented on {t.id} ({len(t.comments)} comments)")
 
 
 def cmd_task_edit(args):
@@ -358,6 +371,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--assignee")
     s.add_argument("--unblocked", action="store_true", help="only tasks whose blockers are all done or cancelled")
     s.add_argument("--blocked", action="store_true", help="only tasks that are currently blocked")
+    s.add_argument("--stale", action="store_true", help="only in-progress tasks with no recent activity")
     s.set_defaults(func=cmd_task_list)
 
     s = task.add_parser("show", help="show brief and worklog")
@@ -403,6 +417,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("message", help="Markdown text ('-' for stdin)")
     s.add_argument("--by", default=DEFAULT_AUTHOR)
     s.set_defaults(func=cmd_task_log)
+
+    s = task.add_parser("comment", help="add to the task's discussion (comments.md), e.g. a question or review note")
+    s.add_argument("id")
+    s.add_argument("message", help="Markdown text ('-' for stdin)")
+    s.add_argument("--by", default=DEFAULT_AUTHOR)
+    s.set_defaults(func=cmd_task_comment)
 
     s = task.add_parser("edit", help="change metadata fields")
     s.add_argument("id")

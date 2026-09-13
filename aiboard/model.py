@@ -19,6 +19,8 @@ TASK_PREFIX = "T"
 SPRINT_PREFIX = "S"
 BRIEF_FILE = "brief.md"
 WORKLOG_FILE = "worklog.md"
+COMMENTS_FILE = "comments.md"
+DEFAULT_STALE_HOURS = 24
 SPRINT_FILE = "sprint.md"
 
 STATUS_ALIASES = {
@@ -40,6 +42,15 @@ STATUS_ALIASES = {
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def parse_iso(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def normalize_status(value: str) -> str:
@@ -222,6 +233,16 @@ class Task:
     body: str = ""
     worklog: List[WorklogEntry] = field(default_factory=list)
     blockers: List[Dict[str, Any]] = field(default_factory=list)
+    comments: List[WorklogEntry] = field(default_factory=list)
+    stale: bool = False
+
+    @property
+    def last_activity(self) -> Optional[str]:
+        """Timestamp of the latest worklog entry or comment, else the updated field."""
+        stamps = [e.timestamp for e in self.worklog] + [e.timestamp for e in self.comments]
+        if self.meta.get("updated"):
+            stamps.append(str(self.meta["updated"]))
+        return max(stamps) if stamps else None
 
     @property
     def sprint(self) -> Optional[str]:
@@ -268,6 +289,9 @@ class Task:
             "blocked_by": self.blocked_by,
             "blocked": self.blocked,
             "blockers": list(self.blockers),
+            "last_activity": self.last_activity,
+            "stale": self.stale,
+            "comments_count": len(self.comments),
             "created": self.meta.get("created"),
             "updated": self.meta.get("updated"),
             "folder": self.folder,
@@ -276,6 +300,7 @@ class Task:
         if include_body:
             d["brief"] = self.body
             d["worklog"] = [e.to_dict() for e in self.worklog]
+            d["comments"] = [e.to_dict() for e in self.comments]
         return d
 
 

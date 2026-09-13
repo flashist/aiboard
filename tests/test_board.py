@@ -313,6 +313,33 @@ class BoardTests(unittest.TestCase):
         self.assertTrue(t.assignee.startswith("agent-"))
         self.assertEqual([e.text for e in t.worklog].count("Status changed `backlog` → `in-progress`."), 1)
 
+    def test_comments_and_stale_detection(self):
+        self.board.create_task("A")
+        t = self.board.comment("T-001", "Is this still needed?", author="mark")
+        self.assertEqual(len(t.comments), 1)
+        self.assertEqual((t.comments[0].author, t.comments[0].text), ("mark", "Is this still needed?"))
+        self.assertTrue((t.path / "comments.md").exists())
+        self.assertEqual(len(t.worklog), 1)  # comments do not pollute the worklog
+        self.assertEqual(t.to_dict()["comments_count"], 1)
+        self.assertEqual(t.to_dict(include_body=True)["comments"][0]["author"], "mark")
+        self.assertFalse(t.stale)  # backlog tasks are never stale
+
+        t = self.board.start("T-001", "bot")
+        self.assertFalse(t.stale)
+        # age every timestamp by a month
+        for name in ("worklog.md", "comments.md", "brief.md"):
+            f = t.path / name
+            f.write_text(f.read_text().replace("2026-09-", "2026-08-"))
+        t = self.board.get_task("T-001")
+        self.assertTrue(t.stale)
+        self.assertEqual([x.id for x in self.board.list_tasks(stale=True)], ["T-001"])
+        self.assertTrue(any("no worklog entry or comment since" in p for p in self.board.check()))
+        (self.tmp / "aiboard.json").write_text('{"name": "x", "stale_after_hours": 100000}')
+        self.assertFalse(self.board.get_task("T-001").stale)
+        (self.tmp / "aiboard.json").write_text('{"name": "x"}')
+        self.board.comment("T-001", "still on it", author="bot")  # any activity clears it
+        self.assertFalse(self.board.get_task("T-001").stale)
+
     def test_not_found(self):
         with self.assertRaises(NotFound):
             self.board.get_task("T-042")

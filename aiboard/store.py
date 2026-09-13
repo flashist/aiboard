@@ -20,6 +20,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .model import (
     BRIEF_FILE,
+    COMMENTS_FILE,
+    DEFAULT_STALE_HOURS,
     PRIORITIES,
     SPRINT_FILE,
     SPRINT_PREFIX,
@@ -35,6 +37,7 @@ from .model import (
     normalize_status,
     now_iso,
     parse_front_matter,
+    parse_iso,
     parse_worklog,
     slugify,
 )
@@ -222,8 +225,30 @@ class Board:
         meta, body = parse_front_matter(brief.read_text(encoding="utf-8")) if brief.exists() else ({}, "")
         worklog_path = path / WORKLOG_FILE
         worklog = parse_worklog(worklog_path.read_text(encoding="utf-8")) if worklog_path.exists() else []
+        comments_path = path / COMMENTS_FILE
+        comments = parse_worklog(comments_path.read_text(encoding="utf-8")) if comments_path.exists() else []
         title = meta.get("title") or _title_from_body(body) or path.name
-        return Task(id=tid, title=str(title), status=status, path=path, meta=meta, body=body, worklog=worklog)
+        task = Task(id=tid, title=str(title), status=status, path=path, meta=meta, body=body, worklog=worklog, comments=comments)
+        task.stale = self._is_stale(task)
+        return task
+
+    @property
+    def stale_after_hours(self) -> float:
+        try:
+            return float(self.config.get("stale_after_hours", DEFAULT_STALE_HOURS))
+        except (TypeError, ValueError):
+            return float(DEFAULT_STALE_HOURS)
+
+    def _is_stale(self, task: Task) -> bool:
+        """In progress with no worklog entry or comment for longer than stale_after_hours."""
+        if task.status != "in-progress":
+            return False
+        last = parse_iso(task.last_activity)
+        if last is None:
+            return True
+        from datetime import datetime, timedelta, timezone
+
+        return datetime.now(timezone.utc) - last > timedelta(hours=self.stale_after_hours)
 
     def _status_index(self) -> Dict[str, Tuple[str, str]]:
         """id -> (status, title) for every task, without parsing worklogs."""
@@ -250,7 +275,7 @@ class Board:
         return task
 
     def list_tasks(self, status: Optional[str] = None, sprint: Optional[str] = None,
-                   unblocked: bool = False) -> List[Task]:
+                   unblocked: bool = False, stale: bool = False) -> List[Task]:
         self._require()
         status = normalize_status(status) if status else None
         sprint_id = normalize_id(SPRINT_PREFIX, sprint) if sprint else None
@@ -264,6 +289,8 @@ class Board:
                 continue
             self._resolve_blockers(task, index)
             if unblocked and task.blocked:
+                continue
+            if stale and not task.stale:
                 continue
             out.append(task)
         out.sort(key=lambda t: t.id)
@@ -455,6 +482,18 @@ class Board:
             self._touch(task)
             return self.get_task(task.id)
 
+    def comment(self, ref: str, message: str, author: str = "aiboard") -> Task:
+        """Append to the task's discussion (comments.md), separate from the worker's worklog."""
+        with self.write_lock():
+            task = self.get_task(ref)
+            path = task.path / COMMENTS_FILE
+            existing = path.read_text(encoding="utf-8") if path.exists() else "# Comments\n\n"
+            if not existing.endswith("\n\n"):
+                existing = existing.rstrip("\n") + "\n\n"
+            path.write_text(existing + format_worklog_entry(now_iso(), author, message), encoding="utf-8")
+            self._touch(task)
+            return self.get_task(task.id)
+
     def _append_worklog(self, task: Task, author: str, message: str) -> None:
         path = task.path / WORKLOG_FILE
         existing = path.read_text(encoding="utf-8") if path.exists() else "# Worklog\n\n"
@@ -643,6 +682,11 @@ class Board:
                     problems.append(f"{t.id} is blocked by itself")
                 elif b not in tasks:
                     problems.append(f"{t.id} is blocked by missing task {b}")
+            if t.stale:
+                problems.append(
+                    f"{t.id} is in progress but has had no worklog entry or comment since {t.last_activity or 'unknown'}"
+                    f" (stale after {self.stale_after_hours:g}h; assignee {t.assignee or 'nobody'})"
+                )
             if t.status == "in-progress" and t.blocked:
                 open_ids = [b["id"] for b in t.blockers if b["status"] not in ("done", "cancelled")]
                 problems.append(f"{t.id} is in progress but blocked by {', '.join(open_ids)}")

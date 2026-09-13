@@ -110,6 +110,15 @@ class McpTests(unittest.TestCase):
         r = self.rpc("tools/call", {"name": "start_task", "arguments": {}})["result"]
         self.assertIn("missing required argument(s): id", r["content"][0]["text"])
 
+    def test_comments(self):
+        self.call("create_task", title="A")
+        r = self.call("comment_task", id="T-001", message="Which DB?")["structuredContent"]
+        self.assertEqual((r["comments"], r["last"]["author"]), (1, "bot"))
+        t = self.call("get_task", id="T-001")["structuredContent"]
+        self.assertEqual(t["comments"][0]["text"], "Which DB?")
+        self.assertEqual(len(t["worklog"]), 1)
+        self.assertEqual(self.call("list_tasks", stale=True)["structuredContent"]["result"], [])
+
     def test_errors(self):
         r = self.rpc("tools/call", {"name": "get_task", "arguments": {"id": "T-404"}})["result"]
         self.assertTrue(r["isError"])

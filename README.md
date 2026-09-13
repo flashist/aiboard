@@ -3,7 +3,7 @@
 A Jira/Trello-style issue tracker where **the filesystem is the database**.
 Built for AI agents, readable by humans.
 
-- Every **task** is a folder holding `brief.md` (what to do) and `worklog.md` (what was done).
+- Every **task** is a folder holding `brief.md` (what to do), `worklog.md` (what was done) and, once someone talks about it, `comments.md` (the discussion).
 - Every **sprint** is a folder holding `sprint.md` (goal, dates, attached tasks).
 - **Status is location.** A task in `tasks/done/` is done. Changing status moves the folder.
 - No server state, no database. Agents can work with plain file operations; the CLI and web board are conveniences that read the same folders.
@@ -117,13 +117,14 @@ approval before MCP tool calls unless its approval policy allows them.
 | `aiboard agents-md [--claude] [--print]` | Insert/refresh the agent instructions block in `AGENTS.md` (and `CLAUDE.md`) |
 | `aiboard mcp [--author A]` | MCP server over stdio |
 | `aiboard task new TITLE [--body ...] [--sprint S-001] [--priority low\|medium\|high] [--assignee X] [--label L]` | Create a task in `backlog` |
-| `aiboard task list [--status S] [--sprint S-001] [--assignee X] [--unblocked\|--blocked]` | List tasks |
+| `aiboard task list [--status S] [--sprint S-001] [--assignee X] [--unblocked\|--blocked\|--stale]` | List tasks |
 | `aiboard task show T-001` | Brief + worklog |
 | `aiboard task change-status T-001 STATUS [--note ...] [--force]` | Move the folder, append a worklog entry; refuses to start a blocked task unless forced |
 | `aiboard task block T-002 T-001` / `unblock ...` | Record that T-002 is blocked by T-001 (Jira: "is blocked by"); logged in the worklog |
 | `aiboard task start T-001 [--as NAME]` | Claim a backlog task and move it to in-progress in one atomic step (Jira: Start progress); fails if someone else holds it |
 | `aiboard task assign T-001 NAME [--force]` | Set (or, with no name, clear) the assignee; refuses to take a task from someone else unless forced |
 | `aiboard task log T-001 "text"` | Append a worklog entry (`-` reads stdin) |
+| `aiboard task comment T-001 "text"` | Add to the task's discussion in `comments.md`: questions for humans, review notes, answers |
 | `aiboard task edit T-001 [--title] [--priority] [--assignee] [--sprint] [--label]` | Change metadata; keeps sprint files in sync |
 | `aiboard sprint new TITLE [--goal ...] [--start D] [--end D]` | Create a sprint in `backlog` |
 | `aiboard sprint list` / `show S-001` / `move S-001 STATUS` | Inspect and move sprints |
@@ -187,6 +188,22 @@ Status changed `backlog` → `in-progress`.
 
 Implemented the parser. Tests green. Blocked on: decision about sprint refs.
 ```
+
+### `tasks/<status>/T-001-<slug>/comments.md`
+
+Same entry format as the worklog, but a different purpose: the worklog is the
+worker's own record, the comments are the conversation *about* the task. A
+reviewer's note, an agent's question for the product owner, and the answer
+all go here. The web board shows a comment count on each card, and agents
+are told to check comments on their task before finishing.
+
+### Stale tasks
+
+A task that is in progress with no worklog entry or comment for longer than
+`stale_after_hours` (default 24, set in `aiboard.json`) is **stale**: it
+shows up in `aiboard check`, `task list --stale`, and as a chip on the board.
+This is how an abandoned task, for example one whose agent crashed, becomes
+visible.
 
 ### `sprints/<status>/S-001-<slug>/sprint.md`
 

@@ -72,6 +72,8 @@ def make_handler(board: Board, read_only: bool = False):
                         t = board.assign(tid, (body.get("assignee") or "").strip() or None, author=author, force=bool(body.get("force")))
                     elif action == "start":
                         t = board.start(tid, (body.get("assignee") or author).strip() or author, author=author, force=bool(body.get("force")))
+                    elif action == "comment":
+                        t = board.comment(tid, str(body.get("message") or "").strip() or _fail("message is required"), author=author)
                     elif action == "log":
                         t = board.log(tid, str(body.get("message") or "").strip() or _fail("message is required"), author=author)
                     elif action == "edit":
