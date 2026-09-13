@@ -10,7 +10,7 @@ tasks:
   - T-003
   - T-004
 created: "2026-09-12T19:36:17Z"
-updated: "2026-09-12T19:36:18Z"
+updated: "2026-09-13T06:28:37Z"
 ---
 
 # Sprint 1 — prototype

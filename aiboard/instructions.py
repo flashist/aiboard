@@ -31,6 +31,9 @@ Working loop:
 Create work with `aiboard task new "Title" --sprint S-001 --priority high --body-file -`.
 Sprints: `aiboard sprint list`, `aiboard sprint show S-001`, `aiboard sprint new "Name" --goal "..."`.
 
+If your harness supports MCP, `aiboard mcp` exposes the same operations as
+typed tools (list_tasks, get_task, create_task, change_task_status, log_work, ...).
+
 Rules: never write a status into `brief.md` (the folder is the status);
 `worklog.md` is append-only; ids like `T-007` are permanent.
 """
