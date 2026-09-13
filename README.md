@@ -33,13 +33,13 @@ Requires Python 3.9+ and nothing else.
 
 ```bash
 # recommended: an isolated install that puts `aiboard` on your PATH
-pipx install git+https://github.com/<you>/aiboard.git     # or: pipx install /path/to/aiboard
+pipx install git+https://github.com/flashist/aiboard.git     # or: pipx install /path/to/aiboard
 
 # or plain pip
-pip install git+https://github.com/<you>/aiboard.git      # or: pip install /path/to/aiboard
+pip install git+https://github.com/flashist/aiboard.git      # or: pip install /path/to/aiboard
 
 # or zero-install from a checkout
-git clone https://github.com/<you>/aiboard.git ~/aiboard
+git clone https://github.com/flashist/aiboard.git ~/aiboard
 ln -s ~/aiboard/bin/aiboard ~/.local/bin/aiboard          # any directory on your PATH
 ```
 
