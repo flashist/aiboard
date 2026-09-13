@@ -7,7 +7,9 @@ Tasks and sprints are folders; the parent folder is the status
 `brief.md` (what to do) and `worklog.md` (what was done, append-only).
 
 Use the CLI (`aiboard`, or `python3 -m aiboard`) from anywhere inside the
-project; it finds the board automatically. Add `--json` for machine-readable
+project; it finds the board automatically by walking up from the current
+directory. Run it from inside the project: from elsewhere it may silently
+resolve to a different board. `aiboard info` shows which board you are on. Add `--json` for machine-readable
 output; errors are then `{"error": "..."}` on stdout with exit code 1.
 Set `AIBOARD_AUTHOR=<your-agent-name>` so worklog entries are attributed.
 

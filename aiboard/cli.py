@@ -53,6 +53,10 @@ def _task_row(t) -> str:
     return f"{t.id:<6} {t.status:<12} {t.priority:<7} {sprint:<6} {who:<12} {flag:<8} {t.title}"
 
 
+def _board_line(board: Board) -> str:
+    return f"board: {board.name} ({board.root})"
+
+
 def _task_table(tasks) -> str:
     if not tasks:
         return "(no tasks)"
@@ -104,7 +108,7 @@ def cmd_task_list(args):
         tasks = [t for t in tasks if t.blocked]
     if args.assignee:
         tasks = [t for t in tasks if t.assignee == args.assignee]
-    _emit(args, [t.to_dict() for t in tasks], _task_table(tasks))
+    _emit(args, [t.to_dict() for t in tasks], _board_line(board) + "\n" + _task_table(tasks))
 
 
 def cmd_task_show(args):
@@ -217,7 +221,7 @@ def cmd_sprint_list(args):
         d = s.to_dict()
         d["progress"] = {k: v for k, v in board.sprint_progress(s).items() if k != "tasks"}
         data.append(d)
-    _emit(args, data, _sprint_table(board, sprints))
+    _emit(args, data, _board_line(board) + "\n" + _sprint_table(board, sprints))
 
 
 def cmd_sprint_show(args):
@@ -275,6 +279,7 @@ def cmd_board(args):
     tasks = board.list_tasks(sprint=args.sprint)
     columns = {s: [t for t in tasks if t.status == s] for s in STATUSES}
     width = 28
+    print(_board_line(board))
     header = "".join(f"{s.upper() + ' (' + str(len(columns[s])) + ')':<{width}}" for s in STATUSES)
     print(header)
     print("-" * (width * len(STATUSES)))
@@ -292,6 +297,25 @@ def cmd_board(args):
         print(row.rstrip())
     if not height:
         print("(no tasks)")
+
+
+def cmd_info(args):
+    board = _board(args)
+    if not board.exists():
+        raise BoardError(f"no board at {board.root} (run `aiboard init`, or cd into a project that has one)")
+    tasks = board.list_tasks()
+    counts = {s: sum(1 for t in tasks if t.status == s) for s in STATUSES}
+    sprints = board.list_sprints()
+    active = [s.id for s in sprints if s.status == "in-progress"]
+    data = {"name": board.name, "root": str(board.root), "config": board.config, "task_counts": counts,
+            "sprints": len(sprints), "active_sprints": active, "stale_after_hours": board.stale_after_hours}
+    _emit(args, data, "\n".join([
+        f"board:    {board.name}",
+        f"root:     {board.root}",
+        f"tasks:    " + ", ".join(f"{k} {v}" for k, v in counts.items()),
+        f"sprints:  {len(sprints)} (active: {', '.join(active) or '-'})",
+        f"stale after: {board.stale_after_hours:g}h",
+    ]))
 
 
 def cmd_check(args):
@@ -480,6 +504,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("board", help="print a kanban view")
     s.add_argument("--sprint", help="only tasks of this sprint")
     s.set_defaults(func=cmd_board)
+
+    sub.add_parser("info", help="which board the CLI resolves to from here, and a summary").set_defaults(func=cmd_info)
 
     s = sub.add_parser("check", help="validate consistency between tasks and sprints")
     s.add_argument("--fix", action="store_true", help="repair what can be repaired (stale sprint task lists)")

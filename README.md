@@ -131,6 +131,7 @@ approval before MCP tool calls unless its approval policy allows them.
 | `aiboard sprint add S-001 T-001 T-002` / `remove ...` | Attach or detach tasks |
 | `aiboard sprint refresh S-001` | Re-render the `## Tasks` checklist in `sprint.md` after hand edits |
 | `aiboard board [--sprint S-001]` | Terminal kanban |
+| `aiboard info` | Which board the CLI resolves to from here, with a summary |
 | `aiboard check [--fix]` | Report inconsistencies (exit 1 if any); `--fix` repairs stale sprint checklists |
 | `aiboard serve [--port 8484]` | Web board (auto-refreshes) |
 

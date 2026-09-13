@@ -413,6 +413,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(data["progress"]["percent"], 100)
         code, out = self.run_cli("board")
         self.assertIn("T-001 Do it", out)
+        self.assertIn("board: ", out)
+        code, out = self.run_cli("--json", "info")
+        info = json.loads(out)
+        self.assertEqual((info["root"], info["task_counts"]["done"], info["active_sprints"]), (str(self.tmp), 1, ["S-001"]))
         self.assertEqual(self.run_cli("check")[0], 0)
         code, out = self.run_cli("task", "show", "T-001", "--json")  # --json anywhere
         self.assertEqual(json.loads(out)["id"], "T-001")
