@@ -62,11 +62,23 @@ def find_board_root(start: Optional[Path] = None) -> Optional[Path]:
     """Walk up from ``start`` (default: cwd) to find a board root, like git does.
 
     A directory is a board root when it holds ``aiboard.json`` or both ``tasks/``
-    and ``sprints/``.
+    and ``sprints/``. An ``aiboard.json`` with a ``"board"`` key is a pointer to
+    the board directory (relative to the file), which lets a project keep its
+    board in a subfolder such as ``board/`` and still be found from anywhere.
     """
     here = Path(start or Path.cwd()).resolve()
     for candidate in [here, *here.parents]:
-        if (candidate / CONFIG_FILE).is_file():
+        cfg = candidate / CONFIG_FILE
+        if cfg.is_file():
+            try:
+                data = json.loads(cfg.read_text(encoding="utf-8"))
+            except ValueError:
+                data = {}
+            target = data.get("board") if isinstance(data, dict) else None
+            if target:
+                pointed = (candidate / str(target)).resolve()
+                if pointed.is_dir():
+                    return pointed
             return candidate
         if (candidate / "tasks").is_dir() and (candidate / "sprints").is_dir():
             return candidate
@@ -78,7 +90,6 @@ class Board:
         self.root = Path(root).resolve()
         self._lock_depth = 0
         self._lock_fd: Optional[int] = None
-        self._config: Optional[Dict[str, Any]] = None
 
     @classmethod
     def locate(cls, root: Optional[str] = None) -> "Board":
@@ -93,13 +104,12 @@ class Board:
 
     @property
     def config(self) -> Dict[str, Any]:
-        if self._config is None:
-            f = self.root / CONFIG_FILE
-            try:
-                self._config = json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
-            except ValueError as e:
-                raise BoardError(f"{f} is not valid JSON: {e}")
-        return self._config
+        """Contents of aiboard.json (re-read on every access; it is tiny and may change)."""
+        f = self.root / CONFIG_FILE
+        try:
+            return json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+        except ValueError as e:
+            raise BoardError(f"{f} is not valid JSON: {e}")
 
     @property
     def name(self) -> str:
@@ -156,8 +166,23 @@ class Board:
         if not cfg.exists():
             cfg.write_text(json.dumps({"name": name or self.root.name, "version": 1}, indent=2) + "\n", encoding="utf-8")
             created.append(cfg)
-            self._config = None
         return created
+
+    def write_pointer(self, project_dir: Path) -> Optional[Path]:
+        """Write ``<project_dir>/aiboard.json`` = {"board": "<relative path>"} so the
+        board is discoverable from the whole project. No-op if a config exists there."""
+        project_dir = Path(project_dir).resolve()
+        if project_dir == self.root:
+            return None
+        pointer = project_dir / CONFIG_FILE
+        if pointer.exists():
+            return None
+        try:
+            rel = self.root.relative_to(project_dir)
+        except ValueError:
+            return None
+        pointer.write_text(json.dumps({"board": rel.as_posix()}, indent=2) + "\n", encoding="utf-8")
+        return pointer
 
     def _require(self) -> None:
         if not self.exists():

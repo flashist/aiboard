@@ -1,0 +1,5 @@
+#!/bin/sh
+# Zero-install launcher: put this directory on PATH (or symlink this file into
+# ~/.local/bin) and `aiboard` works straight from a checkout.
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m aiboard "$@"

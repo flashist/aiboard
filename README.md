@@ -27,37 +27,94 @@ Built for AI agents, readable by humans.
     cancelled/
 ```
 
-## Quick start
+## Installation
 
-Requires Python 3.9+, no dependencies.
+Requires Python 3.9+ and nothing else.
 
 ```bash
-pip install -e .            # gives you the `aiboard` command
-# or, without installing:   python3 -m aiboard ...
+# recommended: an isolated install that puts `aiboard` on your PATH
+pipx install git+https://github.com/<you>/aiboard.git     # or: pipx install /path/to/aiboard
 
-aiboard init                                     # create the folder skeleton in the current dir
+# or plain pip
+pip install git+https://github.com/<you>/aiboard.git      # or: pip install /path/to/aiboard
+
+# or zero-install from a checkout
+git clone https://github.com/<you>/aiboard.git ~/aiboard
+ln -s ~/aiboard/bin/aiboard ~/.local/bin/aiboard          # any directory on your PATH
+```
+
+`aiboard --version` confirms it works. `python3 -m aiboard` is always available
+as a fallback when running from the source tree.
+
+## Quick start
+
+```bash
+cd my-product
+aiboard init board --name "My product"   # creates board/ and a pointer file aiboard.json
+aiboard agents-md --claude               # adds instructions to AGENTS.md and CLAUDE.md
+
 aiboard sprint new "Sprint 1" --goal "Ship v1" --start 2026-09-14 --end 2026-09-25 --status in-progress
 aiboard task new "Write the spec" --sprint S-001 --priority high --assignee claude
-aiboard task change-status T-001 in-progress --by claude
+aiboard task assign T-001 claude
+aiboard task change-status T-001 in-progress
 aiboard task log  T-001 "Drafted section 1, open question about X" --by claude
 aiboard task change-status T-001 done --note "Merged in PR #12"
-aiboard sprint show S-001                        # progress + task list
-aiboard board                                    # kanban in the terminal
-aiboard serve                                    # web board at http://127.0.0.1:8484
+aiboard sprint show S-001                # progress + task list
+aiboard board                            # kanban in the terminal
+aiboard serve                            # web board at http://127.0.0.1:8484
 ```
+
+`aiboard init` with no directory creates the board in the current directory
+instead. Either way the CLI finds the board from anywhere inside the project,
+like git finds its repository: it walks up looking for `aiboard.json` (a board
+or a pointer `{"board": "board"}`) or a `tasks/` + `sprints/` pair. `--root PATH`
+or `AIBOARD_ROOT` override discovery.
 
 Every command accepts `--json` for machine-readable output. With `--json`, every
 failure, including bad arguments, prints `{"error": "..."}` to stdout and exits 1.
 `task list` returns metadata only; `task show` adds the brief and worklog.
-`--root PATH`
-(or `AIBOARD_ROOT`) to point at a board outside the current directory.
 `AIBOARD_AUTHOR` sets the default author for worklog entries.
+
+## Using it from AI agents
+
+aiboard is not tied to any model or vendor. There are three ways in, from
+simplest to most integrated:
+
+**1. Instructions file.** `aiboard agents-md` inserts a marked, idempotent
+block into `AGENTS.md` (read by Codex, Cursor, Copilot, Gemini CLI and
+others); `--claude` also writes it into `CLAUDE.md` for Claude Code. The block
+explains the folder layout and the CLI loop. Re-run it after upgrading aiboard.
+
+**2. CLI with `--json`.** Any agent that can run shell commands can drive the
+board. Set `AIBOARD_AUTHOR` to the agent's name so worklogs show who did what.
+
+**3. MCP server.** `aiboard mcp` speaks the Model Context Protocol over stdio,
+so agents call typed tools (`list_tasks`, `create_task`, `change_task_status`,
+`log_work`, `get_sprint`, ...) instead of shelling out. Zero dependencies.
+
+```bash
+# Claude Code (project scope, from inside the project)
+claude mcp add aiboard -- aiboard mcp --author claude
+
+# Codex CLI: ~/.codex/config.toml
+[mcp_servers.aiboard]
+command = "aiboard"
+args = ["mcp", "--author", "codex"]
+
+# Cursor / Windsurf / generic: .cursor/mcp.json or equivalent
+{ "mcpServers": { "aiboard": { "command": "aiboard", "args": ["mcp", "--author", "cursor"] } } }
+```
+
+The server resolves the board from its working directory (or `--root`), and
+reports its name and location in the MCP `instructions` field on connect.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `aiboard init` | Create `tasks/` and `sprints/` with the four status folders |
+| `aiboard init [DIR] [--name N]` | Create a board (status folders + `aiboard.json`); with DIR, also a pointer file in the current directory |
+| `aiboard agents-md [--claude] [--print]` | Insert/refresh the agent instructions block in `AGENTS.md` (and `CLAUDE.md`) |
+| `aiboard mcp [--author A]` | MCP server over stdio |
 | `aiboard task new TITLE [--body ...] [--sprint S-001] [--priority low\|medium\|high] [--assignee X] [--label L]` | Create a task in `backlog` |
 | `aiboard task list [--status S] [--sprint S-001] [--assignee X]` | List tasks |
 | `aiboard task show T-001` | Brief + worklog |
@@ -71,7 +128,7 @@ failure, including bad arguments, prints `{"error": "..."}` to stdout and exits 
 | `aiboard sprint refresh S-001` | Re-render the `## Tasks` checklist in `sprint.md` after hand edits |
 | `aiboard board [--sprint S-001]` | Terminal kanban |
 | `aiboard check [--fix]` | Report inconsistencies (exit 1 if any); `--fix` repairs stale sprint checklists |
-| `aiboard serve [--port 8484]` | Read-only web board (auto-refreshes) |
+| `aiboard serve [--port 8484]` | Web board (auto-refreshes) |
 
 IDs are forgiving: `T-001`, `T-1`, `1`, or the full folder name all work.
 Statuses accept aliases such as `todo`, `wip`, `in progress`, `closed`, `canceled`.

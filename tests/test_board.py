@@ -211,6 +211,21 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(Board.locate(str(self.tmp)).root, self.tmp)
         self.assertEqual(self.board.snapshot()["name"], "My Product")
 
+    def test_pointer_file_discovery(self):
+        project = Path(tempfile.mkdtemp()).resolve()
+        try:
+            board = Board(project / "board")
+            board.init(name="Sub")
+            self.assertIsNotNone(board.write_pointer(project))
+            self.assertIsNone(board.write_pointer(project))  # idempotent
+            self.assertEqual(json.loads((project / "aiboard.json").read_text()), {"board": "board"})
+            deep = project / "src" / "x"
+            deep.mkdir(parents=True)
+            self.assertEqual(find_board_root(deep), project / "board")
+            self.assertEqual(Board(find_board_root(deep)).name, "Sub")
+        finally:
+            shutil.rmtree(project)
+
     def test_not_found(self):
         with self.assertRaises(NotFound):
             self.board.get_task("T-042")
@@ -222,6 +237,29 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(snap["statuses"], ["backlog", "in-progress", "done", "cancelled"])
         self.assertEqual(snap["sprints"][0]["progress"]["total"], 1)
         json.dumps(snap)
+
+
+class InstructionsTests(unittest.TestCase):
+    def test_install_block_is_idempotent(self):
+        from aiboard.instructions import BEGIN, END, install_block
+
+        d = Path(tempfile.mkdtemp())
+        try:
+            f = d / "AGENTS.md"
+            self.assertEqual(install_block(f, "this repository"), "created")
+            self.assertEqual(install_block(f, "this repository"), "unchanged")
+            self.assertEqual(install_block(f, "`board/`"), "updated")
+            text = f.read_text()
+            self.assertEqual(text.count(BEGIN), 1)
+            self.assertEqual(text.count(END), 1)
+            self.assertIn("tracker in `board/`.", text)
+            g = d / "CLAUDE.md"
+            g.write_text("# Existing\n\nKeep me.\n")
+            self.assertEqual(install_block(g, "this repository"), "updated")
+            self.assertTrue(g.read_text().startswith("# Existing\n\nKeep me.\n"))
+            self.assertIn("tracker in this repository.", g.read_text())
+        finally:
+            shutil.rmtree(d)
 
 
 class CliTests(unittest.TestCase):

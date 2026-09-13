@@ -76,6 +76,10 @@ def _sprint_table(board: Board, sprints) -> str:
 def cmd_init(args):
     board = Board(Path(args.root or args.dir or "."))
     created = board.init(name=args.name)
+    if args.dir and not args.root:
+        pointer = board.write_pointer(Path.cwd())
+        if pointer:
+            created.append(pointer)
     _emit(args, {"root": str(board.root), "name": board.name, "created": [str(p) for p in created]},
           f"Board '{board.name}' ready at {board.root} ({len(created)} entries created)\n"
           f"Next: `aiboard agents-md` to add agent instructions, `aiboard serve` for the web board.")
@@ -259,6 +263,31 @@ def cmd_check(args):
         sys.exit(1)
 
 
+def cmd_agents_md(args):
+    from .instructions import install_block, render_block
+
+    board = _board(args)
+    try:
+        rel = board.root.relative_to(Path.cwd())
+        hint = "this repository" if str(rel) == "." else f"`{rel.as_posix()}/`"
+    except ValueError:
+        hint = f"`{board.root}`"
+    if args.print:
+        print(render_block(hint), end="")
+        return
+    targets = [Path(args.file)]
+    if args.claude:
+        targets.append(Path("CLAUDE.md"))
+    results = {str(t): install_block(t, hint) for t in targets}
+    _emit(args, results, "\n".join(f"{k}: {v}" for k, v in results.items()))
+
+
+def cmd_mcp(args):
+    from .mcp import main as mcp_main
+
+    mcp_main(_board(args), author=args.author)
+
+
 def cmd_serve(args):
     from .server import serve
 
@@ -381,6 +410,16 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("check", help="validate consistency between tasks and sprints")
     s.add_argument("--fix", action="store_true", help="repair what can be repaired (stale sprint task lists)")
     s.set_defaults(func=cmd_check)
+
+    s = sub.add_parser("agents-md", help="add (or refresh) aiboard instructions in AGENTS.md for any coding agent")
+    s.add_argument("--file", default="AGENTS.md", help="target file (default: AGENTS.md in the current directory)")
+    s.add_argument("--claude", action="store_true", help="also write the block into CLAUDE.md")
+    s.add_argument("--print", action="store_true", help="print the block instead of writing files")
+    s.set_defaults(func=cmd_agents_md)
+
+    s = sub.add_parser("mcp", help="run an MCP server over stdio for agents (Claude Code, Codex, Cursor, ...)")
+    s.add_argument("--author", help="name recorded in worklogs (default: $AIBOARD_AUTHOR or 'mcp-agent')")
+    s.set_defaults(func=cmd_mcp)
 
     s = sub.add_parser("serve", help="run the web board")
     s.add_argument("--host", default="127.0.0.1")
