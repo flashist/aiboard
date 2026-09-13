@@ -130,6 +130,42 @@ class BoardTests(unittest.TestCase):
         self.assertEqual(self.board.create_task("Next").id, "T-008")
         self.assertIn("T-007 has no worklog.md", self.board.check())
 
+    def test_assign_logs(self):
+        self.board.create_task("A")
+        t = self.board.assign("T-001", "agent-7", author="agent-7")
+        self.assertEqual(t.assignee, "agent-7")
+        self.assertIn("agent-7", t.worklog[-1].text)
+        t = self.board.assign("T-001", None)
+        self.assertIsNone(t.assignee)
+        self.assertIn("nobody", t.worklog[-1].text)
+
+    def test_parallel_writers_get_unique_ids(self):
+        """20 processes create tasks and move them at once; ids stay unique, board stays consistent."""
+        import os
+        import subprocess
+        import sys
+
+        self.board.create_sprint("S")
+        env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parent.parent))
+        procs = [
+            subprocess.Popen([sys.executable, "-m", "aiboard", "--root", str(self.tmp), "task", "new", f"job {i}", "--sprint", "S-001"],
+                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            for i in range(20)
+        ]
+        errors = [pr.communicate()[1].decode() for pr in procs if pr.wait() != 0]
+        self.assertEqual(errors, [])
+        ids = [t.id for t in self.board.list_tasks()]
+        self.assertEqual(ids, [f"T-{i:03d}" for i in range(1, 21)])
+        procs = [
+            subprocess.Popen([sys.executable, "-m", "aiboard", "--root", str(self.tmp), "task", "change-status", f"T-{i:03d}", "done"],
+                             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            for i in range(1, 21)
+        ]
+        errors = [pr.communicate()[1].decode() for pr in procs if pr.wait() != 0]
+        self.assertEqual(errors, [])
+        self.assertEqual(self.board.check(), [])
+        self.assertEqual(self.board.sprint_progress(self.board.get_sprint("S-001"))["percent"], 100)
+
     def test_not_found(self):
         with self.assertRaises(NotFound):
             self.board.get_task("T-042")

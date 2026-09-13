@@ -10,8 +10,10 @@ The folder a task or sprint sits in *is* its status. Nothing else stores it.
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -46,11 +48,42 @@ class NotFound(BoardError):
 
 
 ID_DIR = re.compile(r"^([A-Z])-(\d+)(?:-(.*))?$")
+LOCK_FILE = ".aiboard.lock"
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
 
 
 class Board:
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
+        self._lock_depth = 0
+        self._lock_fd: Optional[int] = None
+
+    @contextmanager
+    def write_lock(self):
+        """Serialise writers across processes (advisory file lock; reentrant per Board).
+
+        Every mutating method takes this, so concurrent agents cannot hand out the
+        same id twice or interleave a folder move with a sprint-file rewrite.
+        """
+        if self._lock_depth == 0:
+            self._require()
+            self._lock_fd = os.open(str(self.root / LOCK_FILE), os.O_RDWR | os.O_CREAT, 0o644)
+            if fcntl is not None:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_EX)
+        self._lock_depth += 1
+        try:
+            yield
+        finally:
+            self._lock_depth -= 1
+            if self._lock_depth == 0 and self._lock_fd is not None:
+                if fcntl is not None:
+                    fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                os.close(self._lock_fd)
+                self._lock_fd = None
 
     # ------------------------------------------------------------------ paths
     @property
@@ -149,91 +182,105 @@ class Board:
         labels: Optional[List[str]] = None,
         author: str = "aiboard",
     ) -> Task:
-        self._require()
-        status = normalize_status(status)
-        if priority not in PRIORITIES:
-            raise BoardError(f"priority must be one of {', '.join(PRIORITIES)}")
-        sprint_obj = self.get_sprint(sprint) if sprint else None
-        tid = format_id(TASK_PREFIX, self._next_number(self.tasks_dir, TASK_PREFIX))
-        folder = self.tasks_dir / status / f"{tid}-{slugify(title)}"
-        folder.mkdir(parents=True)
-        ts = now_iso()
-        meta: Dict[str, Any] = {
-            "id": tid,
-            "title": title,
-            "sprint": sprint_obj.id if sprint_obj else None,
-            "priority": priority,
-            "assignee": assignee,
-            "labels": labels or [],
-            "created": ts,
-            "updated": ts,
-        }
-        body = body.strip() or "_No description yet._"
-        (folder / BRIEF_FILE).write_text(dump_front_matter(meta, f"# {title}\n\n{body}\n"), encoding="utf-8")
-        (folder / WORKLOG_FILE).write_text(
-            "# Worklog\n\n" + format_worklog_entry(ts, author, f"Task created in `{status}`."), encoding="utf-8"
-        )
-        if sprint_obj:
-            self._sprint_set_tasks(sprint_obj, sprint_obj.tasks + [tid])
-        return self.get_task(tid)
+        with self.write_lock():
+            self._require()
+            status = normalize_status(status)
+            if priority not in PRIORITIES:
+                raise BoardError(f"priority must be one of {', '.join(PRIORITIES)}")
+            sprint_obj = self.get_sprint(sprint) if sprint else None
+            tid = format_id(TASK_PREFIX, self._next_number(self.tasks_dir, TASK_PREFIX))
+            folder = self.tasks_dir / status / f"{tid}-{slugify(title)}"
+            folder.mkdir(parents=True)
+            ts = now_iso()
+            meta: Dict[str, Any] = {
+                "id": tid,
+                "title": title,
+                "sprint": sprint_obj.id if sprint_obj else None,
+                "priority": priority,
+                "assignee": assignee,
+                "labels": labels or [],
+                "created": ts,
+                "updated": ts,
+            }
+            body = body.strip() or "_No description yet._"
+            (folder / BRIEF_FILE).write_text(dump_front_matter(meta, f"# {title}\n\n{body}\n"), encoding="utf-8")
+            (folder / WORKLOG_FILE).write_text(
+                "# Worklog\n\n" + format_worklog_entry(ts, author, f"Task created in `{status}`."), encoding="utf-8"
+            )
+            if sprint_obj:
+                self._sprint_set_tasks(sprint_obj, sprint_obj.tasks + [tid])
+            return self.get_task(tid)
 
     def update_task(self, ref: str, **fields: Any) -> Task:
         """Update front-matter fields. Passing ``sprint`` keeps sprint files in sync."""
-        task = self.get_task(ref)
-        meta = dict(task.meta)
-        if "sprint" in fields:
-            new_sprint = fields.pop("sprint")
-            new_id = self.get_sprint(new_sprint).id if new_sprint else None
-            if task.sprint and task.sprint != new_id:
-                try:
-                    old = self.get_sprint(task.sprint)
-                    self._sprint_set_tasks(old, [t for t in old.tasks if t != task.id])
-                except NotFound:
-                    pass
-            if new_id:
-                sp = self.get_sprint(new_id)
-                if task.id not in sp.tasks:
-                    self._sprint_set_tasks(sp, sp.tasks + [task.id])
-            meta["sprint"] = new_id
-        if "priority" in fields and fields["priority"] not in PRIORITIES:
-            raise BoardError(f"priority must be one of {', '.join(PRIORITIES)}")
-        for k, v in fields.items():
-            if v is not None or k in meta:
-                meta[k] = v
-        meta["updated"] = now_iso()
-        body = task.body
-        if "title" in fields and fields["title"]:
-            body = re.sub(r"^# .*$", f"# {fields['title']}", body, count=1, flags=re.M)
-        (task.path / BRIEF_FILE).write_text(dump_front_matter(meta, body), encoding="utf-8")
-        return self.get_task(task.id)
+        with self.write_lock():
+            task = self.get_task(ref)
+            meta = dict(task.meta)
+            if "sprint" in fields:
+                new_sprint = fields.pop("sprint")
+                new_id = self.get_sprint(new_sprint).id if new_sprint else None
+                if task.sprint and task.sprint != new_id:
+                    try:
+                        old = self.get_sprint(task.sprint)
+                        self._sprint_set_tasks(old, [t for t in old.tasks if t != task.id])
+                    except NotFound:
+                        pass
+                if new_id:
+                    sp = self.get_sprint(new_id)
+                    if task.id not in sp.tasks:
+                        self._sprint_set_tasks(sp, sp.tasks + [task.id])
+                meta["sprint"] = new_id
+            if "priority" in fields and fields["priority"] not in PRIORITIES:
+                raise BoardError(f"priority must be one of {', '.join(PRIORITIES)}")
+            for k, v in fields.items():
+                if v is not None or k in meta:
+                    meta[k] = v
+            meta["updated"] = now_iso()
+            body = task.body
+            if "title" in fields and fields["title"]:
+                body = re.sub(r"^# .*$", f"# {fields['title']}", body, count=1, flags=re.M)
+            (task.path / BRIEF_FILE).write_text(dump_front_matter(meta, body), encoding="utf-8")
+            return self.get_task(task.id)
 
     def move_task(self, ref: str, status: str, author: str = "aiboard", note: Optional[str] = None) -> Task:
-        task = self.get_task(ref)
-        status = normalize_status(status)
-        if status == task.status:
-            return task
-        dest = self.tasks_dir / status / task.path.name
-        if dest.exists():
-            raise BoardError(f"destination already exists: {dest}")
-        shutil.move(str(task.path), str(dest))
-        moved = self._load_task(task.id, status, dest)
-        message = f"Status changed `{task.status}` → `{status}`."
-        if note:
-            message += f" {note}"
-        self._append_worklog(moved, author, message)
-        self._touch(moved)
-        if moved.sprint:
-            try:
-                self.refresh_sprint(moved.sprint)
-            except NotFound:
-                pass
-        return self.get_task(task.id)
+        with self.write_lock():
+            task = self.get_task(ref)
+            status = normalize_status(status)
+            if status == task.status:
+                return task
+            dest = self.tasks_dir / status / task.path.name
+            if dest.exists():
+                raise BoardError(f"destination already exists: {dest}")
+            shutil.move(str(task.path), str(dest))
+            moved = self._load_task(task.id, status, dest)
+            message = f"Status changed `{task.status}` → `{status}`."
+            if note:
+                message += f" {note}"
+            self._append_worklog(moved, author, message)
+            self._touch(moved)
+            if moved.sprint:
+                try:
+                    self.refresh_sprint(moved.sprint)
+                except NotFound:
+                    pass
+            return self.get_task(task.id)
+
+    def assign(self, ref: str, assignee: Optional[str], author: str = "aiboard") -> Task:
+        with self.write_lock():
+            task = self.get_task(ref)
+            if task.assignee == assignee:
+                return task
+            self.update_task(task.id, assignee=assignee)
+            who = f"`{assignee}`" if assignee else "nobody"
+            self._append_worklog(self.get_task(task.id), author, f"Assigned to {who}.")
+            return self.get_task(task.id)
 
     def log(self, ref: str, message: str, author: str = "aiboard") -> Task:
-        task = self.get_task(ref)
-        self._append_worklog(task, author, message)
-        self._touch(task)
-        return self.get_task(task.id)
+        with self.write_lock():
+            task = self.get_task(ref)
+            self._append_worklog(task, author, message)
+            self._touch(task)
+            return self.get_task(task.id)
 
     def _append_worklog(self, task: Task, author: str, message: str) -> None:
         path = task.path / WORKLOG_FILE
@@ -279,59 +326,63 @@ class Board:
         start: Optional[str] = None,
         end: Optional[str] = None,
     ) -> Sprint:
-        self._require()
-        status = normalize_status(status)
-        sid = format_id(SPRINT_PREFIX, self._next_number(self.sprints_dir, SPRINT_PREFIX))
-        folder = self.sprints_dir / status / f"{sid}-{slugify(title)}"
-        folder.mkdir(parents=True)
-        ts = now_iso()
-        meta: Dict[str, Any] = {
-            "id": sid,
-            "title": title,
-            "goal": goal or None,
-            "start": start,
-            "end": end,
-            "tasks": [],
-            "created": ts,
-            "updated": ts,
-        }
-        text = f"# {title}\n\n"
-        if goal:
-            text += f"**Goal:** {goal}\n\n"
-        text += (body.strip() + "\n\n") if body.strip() else ""
-        text += "## Tasks\n\n_No tasks attached yet._\n"
-        (folder / SPRINT_FILE).write_text(dump_front_matter(meta, text), encoding="utf-8")
-        return self.get_sprint(sid)
+        with self.write_lock():
+            self._require()
+            status = normalize_status(status)
+            sid = format_id(SPRINT_PREFIX, self._next_number(self.sprints_dir, SPRINT_PREFIX))
+            folder = self.sprints_dir / status / f"{sid}-{slugify(title)}"
+            folder.mkdir(parents=True)
+            ts = now_iso()
+            meta: Dict[str, Any] = {
+                "id": sid,
+                "title": title,
+                "goal": goal or None,
+                "start": start,
+                "end": end,
+                "tasks": [],
+                "created": ts,
+                "updated": ts,
+            }
+            text = f"# {title}\n\n"
+            if goal:
+                text += f"**Goal:** {goal}\n\n"
+            text += (body.strip() + "\n\n") if body.strip() else ""
+            text += "## Tasks\n\n_No tasks attached yet._\n"
+            (folder / SPRINT_FILE).write_text(dump_front_matter(meta, text), encoding="utf-8")
+            return self.get_sprint(sid)
 
     def move_sprint(self, ref: str, status: str) -> Sprint:
-        sprint = self.get_sprint(ref)
-        status = normalize_status(status)
-        if status == sprint.status:
-            return sprint
-        dest = self.sprints_dir / status / sprint.path.name
-        if dest.exists():
-            raise BoardError(f"destination already exists: {dest}")
-        shutil.move(str(sprint.path), str(dest))
-        moved = self._load_sprint(sprint.id, status, dest)
-        self._write_sprint(moved, moved.meta, moved.body)
-        return self.get_sprint(sprint.id)
+        with self.write_lock():
+            sprint = self.get_sprint(ref)
+            status = normalize_status(status)
+            if status == sprint.status:
+                return sprint
+            dest = self.sprints_dir / status / sprint.path.name
+            if dest.exists():
+                raise BoardError(f"destination already exists: {dest}")
+            shutil.move(str(sprint.path), str(dest))
+            moved = self._load_sprint(sprint.id, status, dest)
+            self._write_sprint(moved, moved.meta, moved.body)
+            return self.get_sprint(sprint.id)
 
     def sprint_add(self, sprint_ref: str, task_refs: List[str]) -> Sprint:
-        sprint = self.get_sprint(sprint_ref)
-        for ref in task_refs:
-            self.update_task(ref, sprint=sprint.id)
-        return self.get_sprint(sprint.id)
+        with self.write_lock():
+            sprint = self.get_sprint(sprint_ref)
+            for ref in task_refs:
+                self.update_task(ref, sprint=sprint.id)
+            return self.get_sprint(sprint.id)
 
     def sprint_remove(self, sprint_ref: str, task_refs: List[str]) -> Sprint:
-        sprint = self.get_sprint(sprint_ref)
-        for ref in task_refs:
-            task = self.get_task(ref)
-            if task.sprint == sprint.id:
-                self.update_task(task.id, sprint=None)
-            else:
-                sprint = self.get_sprint(sprint.id)
-                self._sprint_set_tasks(sprint, [t for t in sprint.tasks if t != task.id])
-        return self.get_sprint(sprint.id)
+        with self.write_lock():
+            sprint = self.get_sprint(sprint_ref)
+            for ref in task_refs:
+                task = self.get_task(ref)
+                if task.sprint == sprint.id:
+                    self.update_task(task.id, sprint=None)
+                else:
+                    sprint = self.get_sprint(sprint.id)
+                    self._sprint_set_tasks(sprint, [t for t in sprint.tasks if t != task.id])
+            return self.get_sprint(sprint.id)
 
     def _sprint_set_tasks(self, sprint: Sprint, task_ids: List[str]) -> None:
         seen: List[str] = []
@@ -366,9 +417,10 @@ class Board:
 
     def refresh_sprint(self, ref: str) -> Sprint:
         """Re-render the task list in sprint.md (e.g. after tasks changed status)."""
-        sprint = self.get_sprint(ref)
-        self._write_sprint(sprint, sprint.meta, sprint.body)
-        return self.get_sprint(sprint.id)
+        with self.write_lock():
+            sprint = self.get_sprint(ref)
+            self._write_sprint(sprint, sprint.meta, sprint.body)
+            return self.get_sprint(sprint.id)
 
     def sprint_progress(self, sprint: Sprint) -> Dict[str, Any]:
         counts = {s: 0 for s in STATUSES}

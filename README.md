@@ -38,9 +38,9 @@ pip install -e .            # gives you the `aiboard` command
 aiboard init                                     # create the folder skeleton in the current dir
 aiboard sprint new "Sprint 1" --goal "Ship v1" --start 2026-09-14 --end 2026-09-25 --status in-progress
 aiboard task new "Write the spec" --sprint S-001 --priority high --assignee claude
-aiboard task move T-001 in-progress --by claude
+aiboard task change-status T-001 in-progress --by claude
 aiboard task log  T-001 "Drafted section 1, open question about X" --by claude
-aiboard task move T-001 done --note "Merged in PR #12"
+aiboard task change-status T-001 done --note "Merged in PR #12"
 aiboard sprint show S-001                        # progress + task list
 aiboard board                                    # kanban in the terminal
 aiboard serve                                    # web board at http://127.0.0.1:8484
@@ -58,7 +58,8 @@ Every command accepts `--json` for machine-readable output, and `--root PATH`
 | `aiboard task new TITLE [--body ...] [--sprint S-001] [--priority low\|medium\|high] [--assignee X] [--label L]` | Create a task in `backlog` |
 | `aiboard task list [--status S] [--sprint S-001] [--assignee X]` | List tasks |
 | `aiboard task show T-001` | Brief + worklog |
-| `aiboard task move T-001 STATUS [--note ...]` | Move the folder, append a worklog entry |
+| `aiboard task change-status T-001 STATUS [--note ...]` | Move the folder, append a worklog entry |
+| `aiboard task assign T-001 NAME` | Set (or, with no name, clear) the assignee; logged in the worklog |
 | `aiboard task log T-001 "text"` | Append a worklog entry (`-` reads stdin) |
 | `aiboard task edit T-001 [--title] [--priority] [--assignee] [--sprint] [--label]` | Change metadata; keeps sprint files in sync |
 | `aiboard sprint new TITLE [--goal ...] [--start D] [--end D]` | Create a sprint in `backlog` |
@@ -70,6 +71,7 @@ Every command accepts `--json` for machine-readable output, and `--root PATH`
 
 IDs are forgiving: `T-001`, `T-1`, `1`, or the full folder name all work.
 Statuses accept aliases such as `todo`, `wip`, `in progress`, `closed`, `canceled`.
+`change-status` may be abbreviated to `status` or `move`.
 
 ## File formats
 
@@ -177,4 +179,5 @@ python3 -m unittest discover -s tests -v
 - **Zero dependencies.** Agents can shell out to `python3 -m aiboard` anywhere Python exists.
 - **Stable ids with a slug suffix.** `T-001-fix-login` sorts, is unique, and is readable. References use the id only, so renaming a task does not break sprints.
 - **Read-only web UI (for now).** Writes go through the CLI or the files so there is one code path keeping things consistent. Editing from the browser can call the same store later.
+- **Safe for parallel agents.** Every write takes an advisory lock on `.aiboard.lock` in the board root, so two agents creating tasks at once never get the same id and folder moves never interleave with sprint-file rewrites.
 - **Git-friendly.** Everything is text; the whole board can live in the repo it tracks, and history comes for free.

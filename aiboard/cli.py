@@ -108,10 +108,16 @@ def cmd_task_show(args):
     _emit(args, t.to_dict(include_body=True), "\n".join(lines))
 
 
-def cmd_task_move(args):
+def cmd_task_change_status(args):
     board = _board(args)
     t = board.move_task(args.id, args.status, author=args.by, note=args.note)
     _emit(args, t.to_dict(), f"{t.id} is now {t.status}: {t.path}")
+
+
+def cmd_task_assign(args):
+    board = _board(args)
+    t = board.assign(args.id, args.assignee or None, author=args.by)
+    _emit(args, t.to_dict(), f"{t.id} assigned to {t.assignee or 'nobody'}")
 
 
 def cmd_task_log(args):
@@ -180,7 +186,7 @@ def cmd_sprint_show(args):
     _emit(args, d, "\n".join(lines))
 
 
-def cmd_sprint_move(args):
+def cmd_sprint_change_status(args):
     board = _board(args)
     s = board.move_sprint(args.id, args.status)
     _emit(args, s.to_dict(), f"{s.id} is now {s.status}: {s.path}")
@@ -275,12 +281,18 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.set_defaults(func=cmd_task_show)
 
-    s = task.add_parser("move", help="change status (moves the folder)")
+    s = task.add_parser("change-status", aliases=["status", "move"], help="change status (moves the folder)")
     s.add_argument("id")
     s.add_argument("status", help="backlog | in-progress | done | cancelled")
     s.add_argument("--note", help="extra text for the worklog entry")
     s.add_argument("--by", default=DEFAULT_AUTHOR)
-    s.set_defaults(func=cmd_task_move)
+    s.set_defaults(func=cmd_task_change_status)
+
+    s = task.add_parser("assign", help="set the assignee (records it in the worklog)")
+    s.add_argument("id")
+    s.add_argument("assignee", nargs="?", default="", help="omit to unassign")
+    s.add_argument("--by", default=DEFAULT_AUTHOR)
+    s.set_defaults(func=cmd_task_assign)
 
     s = task.add_parser("log", help="append a worklog entry")
     s.add_argument("id")
@@ -318,10 +330,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("id")
     s.set_defaults(func=cmd_sprint_show)
 
-    s = sprint.add_parser("move", help="change sprint status (moves the folder)")
+    s = sprint.add_parser("change-status", aliases=["status", "move"], help="change sprint status (moves the folder)")
     s.add_argument("id")
     s.add_argument("status")
-    s.set_defaults(func=cmd_sprint_move)
+    s.set_defaults(func=cmd_sprint_change_status)
 
     s = sprint.add_parser("add", help="attach tasks to a sprint")
     s.add_argument("id")

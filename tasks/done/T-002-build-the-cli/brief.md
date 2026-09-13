@@ -12,4 +12,4 @@ updated: "2026-09-12T19:36:18Z"
 
 # Build the CLI
 
-Commands for init, task new/list/show/move/log/edit, sprint new/list/show/move/add/remove, board, check. All commands support `--json`.
+Commands for init, task new/list/show/change-status/assign/log/edit, sprint new/list/show/change-status/add/remove, board, check. All commands support `--json`.
