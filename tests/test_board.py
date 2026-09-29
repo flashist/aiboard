@@ -5,7 +5,16 @@ import unittest
 from pathlib import Path
 
 from aiboard.cli import main
-from aiboard.model import dump_front_matter, normalize_id, normalize_status, parse_front_matter, parse_worklog, slugify
+from aiboard.model import (
+    PRIORITIES,
+    dump_front_matter,
+    normalize_id,
+    normalize_priority,
+    normalize_status,
+    parse_front_matter,
+    parse_worklog,
+    slugify,
+)
 from aiboard.store import Board, BoardError, NotFound, find_board_root
 
 
@@ -39,6 +48,15 @@ class ModelTests(unittest.TestCase):
             normalize_status("bogus")
         self.assertEqual(slugify("Hello, World!  Ünicode"), "hello-world-nicode")
 
+    def test_priorities(self):
+        self.assertEqual(PRIORITIES, ["low", "medium", "high", "critical"])
+        self.assertEqual(normalize_priority("critical"), "critical")
+        for alias in ("urgent", "URGENT", " Urgent "):
+            self.assertEqual(normalize_priority(alias), "critical")
+        self.assertEqual(normalize_priority("High"), "high")
+        with self.assertRaises(ValueError):
+            normalize_priority("bogus")
+
     def test_worklog_parse(self):
         entries = parse_worklog("# Worklog\n\n## 2026-01-01T00:00:00Z — alice\n\nfirst\n\n## 2026-01-02T00:00:00Z - bob\n\nsecond\nline\n")
         self.assertEqual([(e.author, e.text) for e in entries], [("alice", "first"), ("bob", "second\nline")])
@@ -56,6 +74,28 @@ class BoardTests(unittest.TestCase):
     def test_requires_init(self):
         with self.assertRaises(BoardError):
             Board(self.tmp / "nope").list_tasks()
+
+    def test_critical_priority_and_urgent_alias(self):
+        t = self.board.create_task("Prod is down", priority="critical")
+        self.assertEqual(t.priority, "critical")
+        # The alias is resolved before writing, so the file only ever holds the canonical name.
+        t = self.board.create_task("Checkout broken", priority="urgent")
+        self.assertEqual(t.priority, "critical")
+        self.assertIn("priority: critical", (t.path / "brief.md").read_text(encoding="utf-8"))
+        t = self.board.update_task(t.id, priority="high")
+        self.assertEqual(t.priority, "high")
+        t = self.board.update_task(t.id, priority="Urgent")
+        self.assertEqual(t.priority, "critical")
+        with self.assertRaises(BoardError):
+            self.board.create_task("x", priority="bogus")
+        with self.assertRaises(BoardError):
+            self.board.update_task(t.id, priority="bogus")
+
+    def test_hand_edited_urgent_reads_as_critical(self):
+        t = self.board.create_task("Hand edited")
+        brief = t.path / "brief.md"
+        brief.write_text(brief.read_text(encoding="utf-8").replace("priority: medium", "priority: urgent"), encoding="utf-8")
+        self.assertEqual(self.board.get_task(t.id).priority, "critical")
 
     def test_create_and_move_task(self):
         t = self.board.create_task("Fix login", body="Details", priority="high", assignee="claude")
@@ -440,14 +480,25 @@ class CliTests(unittest.TestCase):
         self.run_cli("init")
         out = io.StringIO()
         argv_backup = _sys.argv
-        _sys.argv = ["aiboard", "--json", "task", "new", "x", "--priority", "urgent"]
+        _sys.argv = ["aiboard", "--json", "task", "new", "x", "--priority", "bogus"]
         try:
             with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as cm:
-                main(["--root", str(self.tmp), "--json", "task", "new", "x", "--priority", "urgent"])
+                main(["--root", str(self.tmp), "--json", "task", "new", "x", "--priority", "bogus"])
         finally:
             _sys.argv = argv_backup
         self.assertEqual(cm.exception.code, 1)
         self.assertIn("invalid choice", json.loads(out.getvalue())["error"])
+
+    def test_critical_priority_via_cli(self):
+        self.run_cli("init")
+        code, out = self.run_cli("--json", "task", "new", "Prod is down", "--priority", "urgent")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["priority"], "critical")
+        self.run_cli("task", "new", "Minor")
+        code, out = self.run_cli("--json", "task", "edit", "T-002", "--priority", "critical")
+        self.assertEqual((code, json.loads(out)["priority"]), (0, "critical"))
+        code, out = self.run_cli("task", "list")
+        self.assertIn("critical", out)
 
     def test_board_truncates_with_ellipsis(self):
         self.run_cli("init")

@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 STATUSES: List[str] = ["backlog", "in-progress", "done", "cancelled"]
-PRIORITIES: List[str] = ["low", "medium", "high"]
+# Ascending. "critical" is for drop-everything work, e.g. production is broken.
+PRIORITIES: List[str] = ["low", "medium", "high", "critical"]
 TASK_PREFIX = "T"
 SPRINT_PREFIX = "S"
 BRIEF_FILE = "brief.md"
@@ -51,6 +52,24 @@ def parse_iso(value: Optional[str]) -> Optional[datetime]:
         return datetime.strptime(str(value), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     except ValueError:
         return None
+
+
+PRIORITY_ALIASES = {
+    "urgent": "critical",
+}
+
+
+def canonical_priority(value: str) -> str:
+    """Lower-case and resolve aliases, without validating (``urgent`` -> ``critical``)."""
+    key = value.strip().lower()
+    return PRIORITY_ALIASES.get(key, key)
+
+
+def normalize_priority(value: str) -> str:
+    key = canonical_priority(value)
+    if key not in PRIORITIES:
+        raise ValueError(f"unknown priority {value!r}; expected one of {', '.join(PRIORITIES)}")
+    return key
 
 
 def normalize_status(value: str) -> str:
@@ -259,7 +278,8 @@ class Task:
 
     @property
     def priority(self) -> str:
-        return self.meta.get("priority") or "medium"
+        # Resolve aliases here too, so a hand-edited "priority: urgent" still reads as critical.
+        return canonical_priority(str(self.meta.get("priority") or "medium"))
 
     @property
     def assignee(self) -> Optional[str]:

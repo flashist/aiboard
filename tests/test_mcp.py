@@ -47,6 +47,17 @@ class McpTests(unittest.TestCase):
         for t in tools:
             self.assertEqual(t["inputSchema"]["type"], "object")
 
+    def test_critical_priority(self):
+        tools = {t["name"]: t for t in self.rpc("tools/list")["result"]["tools"]}
+        for name in ("create_task", "edit_task"):
+            prop = tools[name]["inputSchema"]["properties"]["priority"]
+            self.assertIn("critical", prop["enum"])
+            self.assertIn("production", prop["description"])
+        task = self.call("create_task", title="Prod is down", priority="critical")["structuredContent"]
+        self.assertEqual(task["priority"], "critical")
+        edited = self.call("edit_task", id=task["id"], priority="low")["structuredContent"]
+        self.assertEqual(edited["priority"], "low")
+
     def test_full_loop_through_tools(self):
         sp = self.call("create_sprint", title="Sprint 1", status="in-progress")["structuredContent"]
         self.assertEqual(sp["id"], "S-001")

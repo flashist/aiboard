@@ -36,6 +36,17 @@ class ServerTests(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read().decode())
 
+    def test_critical_priority(self):
+        status, t = self.req("/api/tasks", {"title": "Prod is down", "priority": "urgent"})
+        self.assertEqual((status, t["priority"]), (201, "critical"))
+        status, t = self.req("/api/tasks/T-001/edit", {"priority": "high"})
+        self.assertEqual((status, t["priority"]), (200, "high"))
+        status, t = self.req("/api/tasks/T-001/edit", {"priority": "critical"})
+        self.assertEqual((status, t["priority"]), (200, "critical"))
+        status, err = self.req("/api/tasks/T-001/edit", {"priority": "bogus"})
+        self.assertEqual(status, 400)
+        self.assertIn("critical", err["error"])
+
     def test_index_and_board(self):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/") as resp:
             self.assertIn(b"<title>aiboard</title>", resp.read())

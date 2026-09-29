@@ -36,6 +36,8 @@ def _str(desc: str, **extra: Any) -> Dict[str, Any]:
 
 STATUS_PROP = _str("backlog | in-progress | done | cancelled (aliases like 'wip', 'todo', 'closed' accepted)")
 ID_PROP = _str("task id such as T-007 (T-7 and 7 also work)")
+PRIORITY_PROP = _str("low | medium | high | critical. critical means drop everything: it needs attention now, "
+                     "e.g. production is broken.", enum=PRIORITIES)
 SPRINT_ID_PROP = _str("sprint id such as S-001")
 
 
@@ -91,7 +93,7 @@ class Server:
                "title": _str("short imperative title"),
                "body": _str("Markdown description: context, acceptance criteria, links"),
                "sprint": SPRINT_ID_PROP,
-               "priority": _str("low | medium | high", enum=PRIORITIES),
+               "priority": PRIORITY_PROP,
                "assignee": _str("who works on it"),
                "labels": {"type": "array", "items": {"type": "string"}, "description": "free-form labels"},
                "status": STATUS_PROP,
@@ -146,7 +148,7 @@ class Server:
             return {"id": task.id, "comments": len(task.comments), "last": task.comments[-1].to_dict()}
 
         @t("edit_task", "Change task metadata. Only the fields given are changed; sprint='' detaches.",
-           _schema({"id": ID_PROP, "title": _str("new title"), "priority": _str("low | medium | high", enum=PRIORITIES),
+           _schema({"id": ID_PROP, "title": _str("new title"), "priority": PRIORITY_PROP,
                     "sprint": SPRINT_ID_PROP, "labels": {"type": "array", "items": {"type": "string"}},
                     "blocked_by": {"type": "array", "items": ID_PROP, "description": "replaces all blockers"}}, ["id"]))
         def edit_task(id, **fields):

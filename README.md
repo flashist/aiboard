@@ -116,7 +116,7 @@ approval before MCP tool calls unless its approval policy allows them.
 | `aiboard init [DIR] [--name N]` | Create a board (status folders + `aiboard.json`); with DIR, also a pointer file in the current directory |
 | `aiboard agents-md [--claude] [--print]` | Insert/refresh the agent instructions block in `AGENTS.md` (and `CLAUDE.md`) |
 | `aiboard mcp [--author A]` | MCP server over stdio |
-| `aiboard task new TITLE [--body ...] [--sprint S-001] [--priority low\|medium\|high] [--assignee X] [--label L]` | Create a task in `backlog` |
+| `aiboard task new TITLE [--body ...] [--sprint S-001] [--priority low\|medium\|high\|critical] [--assignee X] [--label L]` | Create a task in `backlog` |
 | `aiboard task list [--status S] [--sprint S-001] [--assignee X] [--unblocked\|--blocked\|--stale]` | List tasks |
 | `aiboard task show T-001` | Brief + worklog |
 | `aiboard task change-status T-001 STATUS [--note ...] [--force]` | Move the folder, append a worklog entry; refuses to start a blocked task unless forced |
@@ -148,7 +148,7 @@ Statuses accept aliases such as `todo`, `wip`, `in progress`, `closed`, `cancele
 id: T-001
 title: Write the spec
 sprint: S-001          # or empty
-priority: high         # low | medium | high
+priority: high         # low | medium | high | critical
 assignee: claude
 labels:
   - docs
@@ -163,6 +163,11 @@ updated: "2026-09-12T19:31:02Z"
 Free-form Markdown. Acceptance criteria, links, context, whatever the
 worker needs. Agents may edit this file directly.
 ```
+
+**Priority** is `low`, `medium` (the default), `high` or `critical`. Use
+`critical` for drop-everything work that arrives suddenly and needs attention
+now, such as production being broken; `urgent` is accepted as another name
+for it. Critical cards are highlighted on the web board.
 
 A task is **blocked** while any id in `blocked_by` is still in `backlog` or
 `in-progress`. `task list --unblocked` (or the MCP `list_tasks` with

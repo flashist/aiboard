@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from . import __version__
-from .model import PRIORITIES, STATUSES
+from .model import PRIORITIES, STATUSES, canonical_priority
 from .store import Board, BoardError
 
 DEFAULT_AUTHOR = os.environ.get("AIBOARD_AUTHOR") or os.environ.get("USER") or "agent"
@@ -50,7 +50,7 @@ def _task_row(t) -> str:
     sprint = t.sprint or "-"
     who = t.assignee or "-"
     flag = "blocked" if t.blocked else ("stale" if t.stale else ("reply?" if t.needs_reply else ""))
-    return f"{t.id:<6} {t.status:<12} {t.priority:<7} {sprint:<6} {who:<12} {flag:<8} {t.title}"
+    return f"{t.id:<6} {t.status:<12} {t.priority:<8} {sprint:<6} {who:<12} {flag:<8} {t.title}"
 
 
 def _board_line(board: Board) -> str:
@@ -60,7 +60,7 @@ def _board_line(board: Board) -> str:
 def _task_table(tasks) -> str:
     if not tasks:
         return "(no tasks)"
-    header = f"{'ID':<6} {'STATUS':<12} {'PRIO':<7} {'SPRINT':<6} {'ASSIGNEE':<12} {'':<8} TITLE"
+    header = f"{'ID':<6} {'STATUS':<12} {'PRIO':<8} {'SPRINT':<6} {'ASSIGNEE':<12} {'':<8} TITLE"
     return "\n".join([header] + [_task_row(t) for t in tasks])
 
 
@@ -383,7 +383,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--body-file", help="read description from file ('-' for stdin)")
     s.add_argument("--status", default="backlog", help="backlog (default) | in-progress | done | cancelled")
     s.add_argument("--sprint", help="attach to sprint, e.g. S-001")
-    s.add_argument("--priority", default="medium", choices=PRIORITIES)
+    s.add_argument("--priority", default="medium", type=canonical_priority, choices=PRIORITIES,
+                   help="critical = drop everything, e.g. production is broken ('urgent' also works)")
     s.add_argument("--assignee")
     s.add_argument("--label", action="append", help="repeatable")
     s.add_argument("--blocked-by", action="append", metavar="ID", help="repeatable; task that must finish first")
@@ -453,7 +454,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = task.add_parser("edit", help="change metadata fields")
     s.add_argument("id")
     s.add_argument("--title")
-    s.add_argument("--priority", choices=PRIORITIES)
+    s.add_argument("--priority", type=canonical_priority, choices=PRIORITIES)
     s.add_argument("--assignee", help="use '' to clear")
     s.add_argument("--sprint", help="use '' to detach")
     s.add_argument("--label", action="append", help="repeatable; replaces all labels")

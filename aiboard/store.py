@@ -34,6 +34,7 @@ from .model import (
     format_id,
     format_worklog_entry,
     normalize_id,
+    normalize_priority,
     normalize_status,
     now_iso,
     parse_front_matter,
@@ -318,8 +319,7 @@ class Board:
         with self.write_lock():
             self._require()
             status = normalize_status(status)
-            if priority not in PRIORITIES:
-                raise BoardError(f"priority must be one of {', '.join(PRIORITIES)}")
+            priority = _priority(priority)
             sprint_obj = self.get_sprint(sprint) if sprint else None
             blockers = self._normalize_blockers(blocked_by or [], None)
             tid = format_id(TASK_PREFIX, self._next_number(self.tasks_dir, TASK_PREFIX))
@@ -365,8 +365,8 @@ class Board:
                     if task.id not in sp.tasks:
                         self._sprint_set_tasks(sp, sp.tasks + [task.id])
                 meta["sprint"] = new_id
-            if "priority" in fields and fields["priority"] not in PRIORITIES:
-                raise BoardError(f"priority must be one of {', '.join(PRIORITIES)}")
+            if "priority" in fields:
+                fields["priority"] = _priority(fields["priority"])
             if "blocked_by" in fields:
                 fields["blocked_by"] = self._normalize_blockers(fields["blocked_by"] or [], task.id)
             for k, v in fields.items():
@@ -768,6 +768,13 @@ def _find_cycles(graph: Dict[str, List[str]]) -> List[List[str]]:
         if state.get(n, 0) == 0:
             visit(n)
     return cycles
+
+
+def _priority(value: Any) -> str:
+    try:
+        return normalize_priority(str(value))
+    except ValueError:
+        raise BoardError(f"priority must be one of {', '.join(PRIORITIES)}")
 
 
 def _title_from_body(body: str) -> Optional[str]:

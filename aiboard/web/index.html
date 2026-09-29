@@ -8,7 +8,7 @@
   :root {
     --bg: #f4f5f7; --panel: #fff; --ink: #172b4d; --muted: #6b778c; --line: #dfe1e6;
     --accent: #0052cc; --backlog: #8993a4; --inprog: #0065ff; --done: #36b37e; --cancel: #de350b;
-    --high: #de350b; --medium: #ff991f; --low: #6b778c;
+    --critical: #bf2600; --high: #de350b; --medium: #ff991f; --low: #6b778c;
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -43,6 +43,8 @@
   .card.high { border-left-color: var(--high); }
   .card.medium { border-left-color: var(--medium); }
   .card.low { border-left-color: var(--low); }
+  .card.critical { border-left: 5px solid var(--critical); padding-left: 10px; background: #fff4f2; box-shadow: 0 0 0 1px #ffbdad, 0 1px 1px rgba(9,30,66,.15); }
+  .card.critical:hover { background: #ffebe6; }
   .card .id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--muted); }
   .card .title { font-weight: 500; margin: 2px 0 6px; }
   .card .meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
@@ -52,6 +54,7 @@
   .chip.blocker { background: #fff7e6; color: #974f0c; }
   .chip.stale { background: #fff7e6; color: #974f0c; font-weight: 600; }
   .chip.comments { background: #eae6ff; color: #403294; }
+  .chip.prio.critical { background: var(--critical); color: #fff; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
   .comments .entry::before { background: #6554c0; }
   .col.dimmed .card { opacity: .55; }
   .sprints { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
@@ -139,7 +142,7 @@
   const $ = (s) => document.querySelector(s);
   const state = { data: null, tab: 'board', sprint: 'all', open: null, hovering: false, pending: false };
   const STATUSES = ['backlog', 'in-progress', 'done', 'cancelled'];
-  const PRIORITIES = ['low', 'medium', 'high'];
+  const PRIORITIES = ['low', 'medium', 'high', 'critical'];
 
   // ---- per-viewer conveniences (name, tab, filter)
   const store = { get(k) { try { return localStorage.getItem('aiboard.' + k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem('aiboard.' + k, v); } catch (e) {} } };
@@ -233,7 +236,7 @@
     const drag = state.data.read_only ? '' : 'draggable="true"';
     return `<div class="card ${t.priority}" data-task="${t.id}" ${drag}>
       <div class="id">${t.id}</div><div class="title">${esc(t.title)}</div>
-      <div class="meta">${t.blocked ? `<span class="chip blocked" title="blocked by ${t.blockers.filter(b => b.status !== 'done' && b.status !== 'cancelled').map(b => b.id).join(', ')}">blocked</span>` : ''}${t.stale ? `<span class="chip stale" title="no activity since ${esc(t.last_activity || '?')}">stale</span>` : ''}${t.comments_count ? `<span class="chip comments" title="${t.comments_count} comments${t.needs_reply ? ', waiting on ' + esc(t.assignee) : ''}">💬 ${t.comments_count}${t.needs_reply ? ' · reply?' : ''}</span>` : ''}${t.sprint ? `<span class="chip sprint">${t.sprint}</span>` : ''}${t.assignee ? `<span class="chip">@${esc(t.assignee)}</span>` : ''}<span class="chip">${t.priority}</span>${labels}</div></div>`;
+      <div class="meta">${t.blocked ? `<span class="chip blocked" title="blocked by ${t.blockers.filter(b => b.status !== 'done' && b.status !== 'cancelled').map(b => b.id).join(', ')}">blocked</span>` : ''}${t.stale ? `<span class="chip stale" title="no activity since ${esc(t.last_activity || '?')}">stale</span>` : ''}${t.comments_count ? `<span class="chip comments" title="${t.comments_count} comments${t.needs_reply ? ', waiting on ' + esc(t.assignee) : ''}">💬 ${t.comments_count}${t.needs_reply ? ' · reply?' : ''}</span>` : ''}${t.sprint ? `<span class="chip sprint">${t.sprint}</span>` : ''}${t.assignee ? `<span class="chip">@${esc(t.assignee)}</span>` : ''}<span class="chip prio ${t.priority}">${t.priority}</span>${labels}</div></div>`;
   }
   function renderBoard() {
     const d = state.data;
