@@ -12,8 +12,12 @@ tasks:
   - T-018
   - T-019
   - T-020
+  - T-021
+  - T-022
+  - T-023
+  - T-024
 created: "2026-09-13T07:48:54Z"
-updated: "2026-09-13T09:51:37Z"
+updated: "2026-09-29T20:47:52Z"
 ---
 
 # Sprint 3 — hardening
@@ -29,3 +33,7 @@ updated: "2026-09-13T09:51:37Z"
 - [x] T-018 — Hold board re-renders while the pointer is over the board (done)
 - [x] T-019 — aiboard info and board header in list outputs (done)
 - [ ] T-020 — Comment resolution semantics (backlog)
+- [ ] T-021 — Snapshot is O(n^2): sprint_progress re-scans the tree per task (backlog)
+- [ ] T-022 — Web board accepts cross-origin writes (CSRF) (backlog)
+- [ ] T-023 — Front matter silently converts digit strings to ints, destroying zero-padding (backlog)
+- [x] T-024 — Add a critical priority for drop-everything work (done)
