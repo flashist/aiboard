@@ -40,6 +40,10 @@
   .card { background: var(--panel); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; box-shadow: 0 1px 1px rgba(9,30,66,.15); cursor: pointer; border-left: 3px solid transparent; }
   .card:hover { background: #f7f8fa; }
   .card.dragging { opacity: .4; }
+  .card { position: relative; }
+  .card.drop-before::before, .card.drop-after::after { content: ""; position: absolute; left: 0; right: 0; height: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
+  .card.drop-before::before { top: -6px; }
+  .card.drop-after::after { bottom: -6px; }
   .card.high { border-left-color: var(--high); }
   .card.medium { border-left-color: var(--medium); }
   .card.low { border-left-color: var(--low); }
@@ -197,10 +201,10 @@
     return data;
   }
   function flash(msg, isError) { const el = $('#status'); el.className = 'status' + (isError ? ' err' : ''); el.textContent = msg; }
-  async function load() {
+  async function load(force) {
     try {
       const fresh = await api('/api/board');
-      if ((state.hovering || dragId) && state.data && JSON.stringify(fresh.tasks) !== JSON.stringify(state.data.tasks)) {
+      if (!force && (state.hovering || dragId) && state.data && JSON.stringify(fresh.tasks) !== JSON.stringify(state.data.tasks)) {
         // cards would move under the cursor: hold the update until the pointer leaves the board
         state.pending = true; flash('changes waiting (move the mouse off the board)'); return;
       }
@@ -215,7 +219,7 @@
     } catch (e) { flash('cannot reach server', true); }
   }
   async function mutate(path, body, okMsg) {
-    try { const r = await api(path, body); flash(okMsg || 'saved'); await load(); return r; }
+    try { const r = await api(path, body); await load(true); flash(okMsg || 'saved'); return r; }
     catch (e) { flash(e.message, true); throw e; }
   }
 
@@ -269,6 +273,11 @@
   }
   function closeDrawer() { state.open = null; $('#overlay').classList.remove('open'); $('#drawer').classList.remove('open'); }
 
+  function queuePosition(t) {
+    const col = (state.data ? state.data.tasks : []).filter(x => x.status === t.status);
+    const n = col.findIndex(x => x.id === t.id) + 1;
+    return n ? `#${n} of ${col.length} in ${t.status}` : '—';
+  }
   async function showTask(id) {
     let t; try { t = await api('/api/tasks/' + id); } catch (e) { flash(e.message, true); return; }
     state.open = { kind: 'task', id: t.id };
@@ -281,6 +290,7 @@
         <dt>Status</dt><dd>${ro ? t.status : `<select data-act="status">${options(STATUSES, t.status)}</select>`}</dd>
         <dt>Sprint</dt><dd>${ro ? (t.sprint ? `<a href="#" data-ref="${t.sprint}">${t.sprint}</a>` : '—') : `<select data-act="sprint">${sprintOptions(t.sprint)}</select>`}</dd>
         <dt>Priority</dt><dd>${ro ? t.priority : `<select data-act="priority">${options(PRIORITIES, t.priority)}</select>`}</dd>
+        <dt>Order</dt><dd>${queuePosition(t)}${ro ? '' : ` <button class="small" data-act="rank-top">Move to top</button> <button class="small" data-act="rank-bottom">Move to bottom</button>`}</dd>
         <dt>Assignee</dt><dd>${ro ? (t.assignee ? esc(t.assignee) : '—') : `<input data-act="assignee" value="${esc(t.assignee || '')}" placeholder="nobody"> <button class="small" data-act="assign-me">me</button>`}</dd>
         <dt>Labels</dt><dd>${(t.labels || []).map(l => `<span class="chip">${esc(l)}</span>`).join(' ') || '—'}</dd>
         <dt>Blocked by</dt><dd>${(t.blockers || []).map(b => `<a href="#" class="chip ${b.status === 'done' || b.status === 'cancelled' ? '' : 'blocker'}" data-ref="${b.id}" title="${esc(b.title || '')}">${b.id} · ${b.status}</a>`).join(' ')}${ro ? ((t.blockers || []).length ? '' : '—') : ` <input data-act="blocked_by" value="${esc((t.blocked_by || []).join(', '))}" placeholder="T-001, T-002" style="width:160px">`}${t.blocked ? ' <span class="chip blocked">blocked</span>' : ''}</dd>
@@ -341,16 +351,44 @@
   }
 
   // ---- drag and drop
-  let dragId = null;
+  // Dropping between two cards ranks the task between them; dropping in another column also
+  // changes its status. The line shows where it will land.
+  let dragId = null, dropAt = null;
+  function clearDropLine() { document.querySelectorAll('.drop-before, .drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after')); }
+  function dropTarget(col, y) {
+    const cards = [...col.querySelectorAll('.card')].filter(c => c.dataset.task !== dragId);
+    const below = cards.find(c => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; });
+    if (below) return { card: below, where: 'before' };
+    return cards.length ? { card: cards[cards.length - 1], where: 'after' } : null;
+  }
   document.addEventListener('dragstart', (e) => { const c = e.target.closest && e.target.closest('.card'); if (!c) return; dragId = c.dataset.task; c.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragId); });
-  document.addEventListener('dragend', (e) => { const c = e.target.closest && e.target.closest('.card'); if (c) c.classList.remove('dragging'); document.querySelectorAll('.col.over').forEach(x => x.classList.remove('over')); });
-  document.addEventListener('dragover', (e) => { const col = e.target.closest && e.target.closest('.col'); if (!col || !dragId) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.classList.add('over'); });
-  document.addEventListener('dragleave', (e) => { const col = e.target.closest && e.target.closest('.col'); if (col && !col.contains(e.relatedTarget)) col.classList.remove('over'); });
+  document.addEventListener('dragend', (e) => { const c = e.target.closest && e.target.closest('.card'); if (c) c.classList.remove('dragging'); document.querySelectorAll('.col.over').forEach(x => x.classList.remove('over')); clearDropLine(); dragId = null; dropAt = null; });
+  document.addEventListener('dragover', (e) => {
+    const col = e.target.closest && e.target.closest('.col'); if (!col || !dragId) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.classList.add('over');
+    const t = dropTarget(col, e.clientY);
+    const key = t ? t.card.dataset.task + ':' + t.where : col.dataset.status;
+    if (dropAt && dropAt.key === key) return;
+    clearDropLine(); dropAt = { key, target: t };
+    if (t) t.card.classList.add('drop-' + t.where);
+  });
+  document.addEventListener('dragleave', (e) => { const col = e.target.closest && e.target.closest('.col'); if (col && !col.contains(e.relatedTarget)) { col.classList.remove('over'); clearDropLine(); dropAt = null; } });
   document.addEventListener('drop', async (e) => {
     const col = e.target.closest && e.target.closest('.col'); if (!col || !dragId) return; e.preventDefault();
-    const id = dragId; dragId = null; col.classList.remove('over');
-    const task = state.data.tasks.find(t => t.id === id); if (!task || task.status === col.dataset.status) return;
-    await mutate(`/api/tasks/${id}/status`, { status: col.dataset.status }, `${id} → ${col.dataset.status}`).catch(() => {});
+    const id = dragId, target = dropTarget(col, e.clientY); dragId = null; dropAt = null;
+    col.classList.remove('over'); clearDropLine();
+    const task = state.data.tasks.find(t => t.id === id); if (!task) return;
+    const status = col.dataset.status, moving = task.status !== status;
+    const steps = [];
+    try {
+      if (moving) { await api(`/api/tasks/${id}/status`, { status }); steps.push(status); }
+      if (target) {
+        const ranked = await api(`/api/tasks/${id}/rank`, { [target.where]: target.card.dataset.task });
+        if (ranked.rank !== task.rank) steps.push(`${target.where} ${target.card.dataset.task}`);
+      }
+      await load(true);
+      flash(steps.length ? `${id} → ${steps.join(', ')}` : 'no change');
+    } catch (err) { flash(err.message, true); load(true); }
   });
 
   // ---- events
@@ -363,6 +401,11 @@
       if (a === 'log') { const text = $('#logText').value.trim(); if (!text) return; await mutate(`/api/tasks/${id}/log`, { message: text }, 'logged').then(() => showTask(id)).catch(() => {}); return; }
       if (a === 'assign-me') { const me = author(); if (me === 'web') { flash('type your name in the header first', true); return; } await mutate(`/api/tasks/${id}/assign`, { assignee: me, force: true }).then(() => showTask(id)).catch(() => {}); return; }
       if (a === 'new-task-in-sprint') { newTaskForm(act.dataset.sprint); return; }
+      if (a === 'rank-top' || a === 'rank-bottom') {
+        const top = a === 'rank-top';
+        await mutate(`/api/tasks/${id}/rank`, top ? { top: true } : { bottom: true }, `${id} → ${top ? 'top' : 'bottom'} of the queue`).then(() => showTask(id)).catch(() => {});
+        return;
+      }
       return;
     }
     const ref = e.target.closest('[data-ref]'); if (ref) { e.preventDefault(); const id = ref.dataset.ref; id.startsWith('T-') ? showTask(id) : showSprint(id); return; }

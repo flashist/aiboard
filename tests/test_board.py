@@ -7,6 +7,7 @@ from pathlib import Path
 from aiboard.cli import main
 from aiboard.model import (
     PRIORITIES,
+    Task,
     dump_front_matter,
     normalize_id,
     normalize_priority,
@@ -57,6 +58,13 @@ class ModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_priority("bogus")
 
+    def test_rank_defaults_to_id_order(self):
+        task = lambda meta: Task(id="T-007", title="x", status="backlog", path=Path("."), meta=meta)
+        self.assertEqual(task({}).rank, 7000)  # boards from before ranking keep their id order
+        self.assertEqual(task({"rank": 2500}).rank, 2500)
+        self.assertEqual(task({"rank": "-1500"}).rank, -1500)  # survives a string round trip too
+        self.assertEqual(task({"rank": "soon"}).rank, 7000)  # malformed: falls back, `check` reports it
+
     def test_worklog_parse(self):
         entries = parse_worklog("# Worklog\n\n## 2026-01-01T00:00:00Z — alice\n\nfirst\n\n## 2026-01-02T00:00:00Z - bob\n\nsecond\nline\n")
         self.assertEqual([(e.author, e.text) for e in entries], [("alice", "first"), ("bob", "second\nline")])
@@ -96,6 +104,115 @@ class BoardTests(unittest.TestCase):
         brief = t.path / "brief.md"
         brief.write_text(brief.read_text(encoding="utf-8").replace("priority: medium", "priority: urgent"), encoding="utf-8")
         self.assertEqual(self.board.get_task(t.id).priority, "critical")
+
+    def order(self, **filters):
+        return [t.id for t in self.board.list_tasks(**filters)]
+
+    def test_new_tasks_join_the_bottom_and_critical_ones_the_top(self):
+        for title in ("a", "b", "c"):
+            self.board.create_task(title)
+        self.assertEqual(self.order(), ["T-001", "T-002", "T-003"])
+        self.board.create_task("prod is down", priority="critical")
+        self.board.create_task("d")
+        self.assertEqual(self.order(), ["T-004", "T-001", "T-002", "T-003", "T-005"])
+
+    def test_rank_top_bottom_before_after(self):
+        for title in ("a", "b", "c", "d"):
+            self.board.create_task(title)
+        self.board.rank_task("T-4", top=True)
+        self.assertEqual(self.order(), ["T-004", "T-001", "T-002", "T-003"])
+        self.board.rank_task("T-1", bottom=True)
+        self.assertEqual(self.order(), ["T-004", "T-002", "T-003", "T-001"])
+        self.board.rank_task("T-1", before="T-2")
+        self.assertEqual(self.order(), ["T-004", "T-001", "T-002", "T-003"])
+        self.board.rank_task("T-4", after="T-3")
+        self.assertEqual(self.order(), ["T-001", "T-002", "T-003", "T-004"])
+
+    def test_a_move_rewrites_only_the_moved_task(self):
+        for title in ("a", "b", "c", "d"):
+            self.board.create_task(title)
+        briefs = {t.id: (t.path / "brief.md").read_text(encoding="utf-8") for t in self.board.list_tasks()}
+        self.board.rank_task("T-004", after="T-001")
+        changed = [t.id for t in self.board.list_tasks() if (t.path / "brief.md").read_text(encoding="utf-8") != briefs[t.id]]
+        self.assertEqual(changed, ["T-004"])
+        self.assertEqual(self.board.get_task("T-004").rank, 1500)
+        # Ranking a task to where it already is writes nothing at all.
+        before = (self.board.get_task("T-004").path / "brief.md").read_text(encoding="utf-8")
+        self.board.rank_task("T-004", after="T-001")
+        self.assertEqual((self.board.get_task("T-004").path / "brief.md").read_text(encoding="utf-8"), before)
+
+    def test_rank_respaces_when_a_gap_runs_out(self):
+        self.board.create_task("first")
+        self.board.create_task("last")
+        inserted = []
+        for i in range(15):  # 1000 halves to nothing after about ten inserts at the same spot
+            t = self.board.create_task(f"filler {i}")
+            self.board.rank_task(t.id, after="T-001")
+            inserted.append(t.id)
+        expected = ["T-001"] + list(reversed(inserted)) + ["T-002"]
+        self.assertEqual(self.order(), expected)
+        ranks = [t.rank for t in self.board.list_tasks()]
+        self.assertEqual(len(set(ranks)), len(ranks))
+
+    def test_rank_validation(self):
+        self.board.create_task("a")
+        self.board.create_task("b")
+        with self.assertRaises(BoardError):
+            self.board.rank_task("T-001")
+        with self.assertRaises(BoardError):
+            self.board.rank_task("T-001", top=True, before="T-002")
+        with self.assertRaises(BoardError):
+            self.board.rank_task("T-001", before="T-001")
+        with self.assertRaises(NotFound):
+            self.board.rank_task("T-001", after="T-099")
+
+    def test_rank_survives_status_changes_and_orders_every_view(self):
+        sp = self.board.create_sprint("Sprint 1")
+        for title in ("a", "b", "c"):
+            self.board.create_task(title, sprint=sp.id)
+        self.board.rank_task("T-003", top=True)
+        self.board.move_task("T-003", "in-progress")
+        self.board.move_task("T-001", "in-progress")
+        self.assertEqual(self.order(status="in-progress"), ["T-003", "T-001"])
+        progress = self.board.sprint_progress(self.board.get_sprint(sp.id))
+        self.assertEqual([t.id for t in progress["tasks"]], ["T-003", "T-001", "T-002"])
+
+    def test_raising_to_critical_moves_to_the_top_once(self):
+        for title in ("a", "b", "c"):
+            self.board.create_task(title)
+        self.board.update_task("T-003", priority="critical")
+        self.assertEqual(self.order()[0], "T-003")
+        self.board.rank_task("T-003", bottom=True)
+        # Already critical: other edits leave the manual order alone.
+        self.board.update_task("T-003", priority="critical", title="still critical")
+        self.assertEqual(self.order()[-1], "T-003")
+
+    def test_ranking_does_not_touch_updated(self):
+        # `updated` feeds stale detection; reordering is not work on the task.
+        self.board.create_task("a")
+        t = self.board.create_task("b")
+        brief = t.path / "brief.md"
+        brief.write_text(brief.read_text(encoding="utf-8").replace(t.meta["updated"], "2020-01-01T00:00:00Z"), encoding="utf-8")
+        self.board.rank_task("T-002", top=True)
+        self.assertEqual(self.board.get_task("T-002").meta["updated"], "2020-01-01T00:00:00Z")
+
+    def test_boards_without_ranks_keep_id_order(self):
+        for title in ("a", "b", "c"):
+            t = self.board.create_task(title)
+            brief = t.path / "brief.md"
+            brief.write_text("".join(l for l in brief.read_text(encoding="utf-8").splitlines(True) if not l.startswith("rank:")),
+                             encoding="utf-8")
+        self.assertEqual(self.order(), ["T-001", "T-002", "T-003"])
+        self.board.rank_task("T-003", before="T-002")
+        self.assertEqual(self.order(), ["T-001", "T-003", "T-002"])
+        self.assertEqual(self.board.get_task("T-003").rank, 1500)
+        self.assertIsNone(self.board.get_task("T-002").meta.get("rank"))  # neighbours untouched
+
+    def test_check_reports_a_malformed_rank(self):
+        t = self.board.create_task("a")
+        brief = t.path / "brief.md"
+        brief.write_text(brief.read_text(encoding="utf-8").replace("rank: 1000", "rank: soon"), encoding="utf-8")
+        self.assertTrue(any("rank" in p and "T-001" in p for p in self.board.check()))
 
     def test_create_and_move_task(self):
         t = self.board.create_task("Fix login", body="Details", priority="high", assignee="claude")
@@ -424,6 +541,13 @@ class InstructionsTests(unittest.TestCase):
         finally:
             shutil.rmtree(d)
 
+    def test_block_tells_agents_to_take_work_from_the_top(self):
+        from aiboard.instructions import render_block
+
+        block = render_block()
+        self.assertIn("queue order", block)
+        self.assertIn("aiboard task rank", block)
+
 
 class CliTests(unittest.TestCase):
     def setUp(self):
@@ -499,6 +623,20 @@ class CliTests(unittest.TestCase):
         self.assertEqual((code, json.loads(out)["priority"]), (0, "critical"))
         code, out = self.run_cli("task", "list")
         self.assertIn("critical", out)
+
+    def test_task_rank_via_cli(self):
+        self.run_cli("init")
+        for title in ("a", "b", "c"):
+            self.run_cli("task", "new", title)
+        code, out = self.run_cli("task", "rank", "T-003", "--top")
+        self.assertEqual(code, 0)
+        self.assertIn("Ranked T-003 to the top", out)
+        code, out = self.run_cli("--json", "task", "rank", "T-001", "--after", "T-002")
+        self.assertEqual((code, json.loads(out)["id"]), (0, "T-001"))
+        code, out = self.run_cli("--json", "task", "list")
+        self.assertEqual([t["id"] for t in json.loads(out)], ["T-003", "T-002", "T-001"])
+        code, out = self.run_cli("task", "show", "T-003")
+        self.assertIn("rank:", out)
 
     def test_board_truncates_with_ellipsis(self):
         self.run_cli("init")

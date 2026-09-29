@@ -76,6 +76,9 @@ def make_handler(board: Board, read_only: bool = False):
                         t = board.comment(tid, str(body.get("message") or "").strip() or _fail("message is required"), author=author)
                     elif action == "log":
                         t = board.log(tid, str(body.get("message") or "").strip() or _fail("message is required"), author=author)
+                    elif action == "rank":
+                        t = board.rank_task(tid, top=bool(body.get("top")), bottom=bool(body.get("bottom")),
+                                            before=body.get("before") or None, after=body.get("after") or None)
                     elif action == "edit":
                         fields = {k: body[k] for k in ("title", "priority", "sprint", "labels", "blocked_by") if k in body}
                         if "labels" in fields:

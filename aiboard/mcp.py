@@ -20,9 +20,10 @@ PROTOCOL_VERSION = "2025-06-18"
 INSTRUCTIONS = """aiboard is a file-based issue tracker: tasks and sprints are folders, the
 parent folder is the status (backlog, in-progress, done, cancelled).
 Before new work: list_tasks(assignee=<you>, needs_reply=true) and act on those comments first.
-Typical loop: list_tasks(status="backlog", unblocked=true) -> start_task (atomic claim; if it fails,
-another agent got there first: pick the next one) -> get_task (read the brief) -> log_work as you go
--> change_task_status(done, note=...).
+Typical loop: list_tasks(status="backlog", unblocked=true) returns the queue in rank order, top first
+(critical tasks start at the top) -> start_task on the FIRST one (atomic claim; if it fails, another agent
+got there first: take the next one) -> get_task (read the brief) -> log_work as you go
+-> change_task_status(done, note=...). rank_task reorders the queue.
 Worklogs are append-only; always log decisions and blockers so humans can follow.
 Questions for humans go to comment_task, not the worklog; re-read get_task for answers.
 Run check_board when you have edited files by hand."""
@@ -71,7 +72,8 @@ class Server:
             counts = {s: sum(1 for x in snap["tasks"] if x["status"] == s) for s in STATUSES}
             return {"name": snap["name"], "root": snap["root"], "task_counts": counts, "sprints": snap["sprints"]}
 
-        @t("list_tasks", "List tasks (metadata only; use get_task for the brief and worklog). "
+        @t("list_tasks", "List tasks in queue order: the top of the queue first, so take work from the start "
+                         "of the list. Metadata only; use get_task for the brief and worklog. "
                          "Each task carries blocked_by, blocked (true while a blocker is open) and blockers.",
            _schema({"status": STATUS_PROP, "sprint": SPRINT_ID_PROP, "assignee": _str("filter by assignee"),
                     "unblocked": {"type": "boolean", "description": "only tasks that can be started now"},
@@ -120,6 +122,16 @@ class Server:
            _schema({"id": ID_PROP, "blockers": {"type": "array", "items": ID_PROP}}, ["id", "blockers"]))
         def unblock_task(id, blockers):
             return b.unblock(id, blockers, author=self.author).to_dict()
+
+        @t("rank_task", "Reorder the queue (Jira: Rank). Give exactly one of top, bottom, before or after. "
+                        "Lists and board columns sort by rank, and agents take work from the top.",
+           _schema({"id": ID_PROP,
+                    "top": {"type": "boolean", "description": "move to the top of the queue"},
+                    "bottom": {"type": "boolean", "description": "move to the bottom of the queue"},
+                    "before": _str("place just above this task id"),
+                    "after": _str("place just below this task id")}, ["id"]))
+        def rank_task(id, top=False, bottom=False, before=None, after=None):
+            return b.rank_task(id, top=bool(top), bottom=bool(bottom), before=before or None, after=after or None).to_dict()
 
         @t("start_task", "Claim a backlog task and move it to in-progress in ONE atomic step (Jira: Start progress). "
                          "Fails if the task is not in backlog, is assigned to someone else, or is blocked. "

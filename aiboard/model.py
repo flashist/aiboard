@@ -22,6 +22,9 @@ BRIEF_FILE = "brief.md"
 WORKLOG_FILE = "worklog.md"
 COMMENTS_FILE = "comments.md"
 DEFAULT_STALE_HOURS = 24
+# Gap between neighbouring ranks. A task moved between two others takes the midpoint,
+# so a move rewrites one file; the order is respaced only when a gap runs out.
+RANK_STEP = 1000
 SPRINT_FILE = "sprint.md"
 
 STATUS_ALIASES = {
@@ -277,6 +280,25 @@ class Task:
         return self.meta.get("sprint") or None
 
     @property
+    def rank(self) -> int:
+        """Position in the queue; lower is nearer the top. Every list and board column sorts by it.
+
+        A task without a stored rank behaves as ``id number x RANK_STEP``, so boards made
+        before ranking existed keep their id order without any migration.
+        """
+        raw = self.meta.get("rank")
+        if raw is not None:
+            try:
+                return int(str(raw).strip())
+            except ValueError:
+                pass  # reported by `aiboard check`; fall back to the id-based default
+        return int(self.id.split("-")[1]) * RANK_STEP
+
+    @property
+    def has_stored_rank(self) -> bool:
+        return self.meta.get("rank") is not None
+
+    @property
     def priority(self) -> str:
         # Resolve aliases here too, so a hand-edited "priority: urgent" still reads as critical.
         return canonical_priority(str(self.meta.get("priority") or "medium"))
@@ -313,6 +335,7 @@ class Task:
             "status": self.status,
             "sprint": self.sprint,
             "priority": self.priority,
+            "rank": self.rank,
             "assignee": self.assignee,
             "labels": list(self.meta.get("labels") or []),
             "blocked_by": self.blocked_by,

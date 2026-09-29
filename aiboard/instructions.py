@@ -24,8 +24,8 @@ Set `AIBOARD_AUTHOR=<your-agent-name>` so worklog entries are attributed.
 Working loop:
 
 0. First, answer people: `aiboard --json task list --assignee <you> --needs-reply` lists your tasks (any status) whose latest comment is not yours. Act on those before new work.
-1. Find work: `aiboard --json task list --status backlog --unblocked [--sprint S-001]`
-2. Take it: `aiboard task start T-007` (atomic claim + in-progress; if it fails, another agent got there first: pick the next task)
+1. Find work: `aiboard --json task list --status backlog --unblocked [--sprint S-001]`. Tasks come in queue order, top first (critical tasks start at the top): take the first one.
+2. Take it: `aiboard task start T-007` (atomic claim + in-progress; if it fails, another agent got there first: take the next one in the list)
 3. Read the brief: `aiboard --json task show T-007`
 4. Log as you go: `aiboard task log T-007 "Implemented X. Next: Y."` (use `-` to pipe Markdown via stdin)
 5. Need a human? `aiboard task comment T-007 "Question: ..."` and move on; answers arrive as comments (`task show`).
@@ -34,6 +34,7 @@ Working loop:
 
 Create work with `aiboard task new "Title" --sprint S-001 --priority high --body-file -`;
 add `--blocked-by T-003` when another task must finish first (or later: `aiboard task block T-009 T-003`).
+Reorder the queue with `aiboard task rank T-009 --top` (or `--bottom`, `--before T-003`, `--after T-003`).
 Sprints: `aiboard sprint list`, `aiboard sprint show S-001`, `aiboard sprint new "Name" --goal "..."`.
 
 If your harness supports MCP, `aiboard mcp` exposes the same operations as

@@ -23,6 +23,7 @@ from .model import (
     COMMENTS_FILE,
     DEFAULT_STALE_HOURS,
     PRIORITIES,
+    RANK_STEP,
     SPRINT_FILE,
     SPRINT_PREFIX,
     STATUSES,
@@ -296,7 +297,7 @@ class Board:
             if needs_reply and not task.needs_reply:
                 continue
             out.append(task)
-        out.sort(key=lambda t: t.id)
+        out.sort(key=_rank_key)
         return out
 
     def get_task(self, ref: str) -> Task:
@@ -323,6 +324,11 @@ class Board:
             sprint_obj = self.get_sprint(sprint) if sprint else None
             blockers = self._normalize_blockers(blocked_by or [], None)
             tid = format_id(TASK_PREFIX, self._next_number(self.tasks_dir, TASK_PREFIX))
+            ranks = [t.rank for t in self._rank_entries()]
+            if priority == "critical":
+                rank = min(ranks) - RANK_STEP if ranks else RANK_STEP
+            else:
+                rank = max(ranks) + RANK_STEP if ranks else RANK_STEP
             folder = self.tasks_dir / status / f"{tid}-{slugify(title)}"
             folder.mkdir(parents=True)
             ts = now_iso()
@@ -331,6 +337,7 @@ class Board:
                 "title": title,
                 "sprint": sprint_obj.id if sprint_obj else None,
                 "priority": priority,
+                "rank": rank,
                 "assignee": assignee,
                 "labels": labels or [],
                 "blocked_by": blockers,
@@ -350,6 +357,7 @@ class Board:
         """Update front-matter fields. Passing ``sprint`` keeps sprint files in sync."""
         with self.write_lock():
             task = self.get_task(ref)
+            was_critical = task.priority == "critical"
             meta = dict(task.meta)
             if "sprint" in fields:
                 new_sprint = fields.pop("sprint")
@@ -377,6 +385,77 @@ class Board:
             if "title" in fields and fields["title"]:
                 body = re.sub(r"^# .*$", f"# {fields['title']}", body, count=1, flags=re.M)
             (task.path / BRIEF_FILE).write_text(dump_front_matter(meta, body), encoding="utf-8")
+            if meta.get("priority") == "critical" and not was_critical:
+                return self.rank_task(task.id, top=True)
+            return self.get_task(task.id)
+
+    # ----------------------------------------------------------------- ranking
+    def _rank_entries(self) -> List[Task]:
+        """Every task in queue order, loaded light (front matter and brief only, no logs)."""
+        out: List[Task] = []
+        for tid, st, path in self._scan(self.tasks_dir, TASK_PREFIX):
+            brief = path / BRIEF_FILE
+            meta, body = parse_front_matter(brief.read_text(encoding="utf-8")) if brief.exists() else ({}, "")
+            out.append(Task(id=tid, title=str(meta.get("title") or path.name), status=st, path=path, meta=meta, body=body))
+        out.sort(key=_rank_key)
+        return out
+
+    def _write_rank(self, task: Task, rank: int) -> None:
+        """Store a rank next to ``priority`` without touching ``updated``: reordering is not
+        work on the task, so it must not make a stale task look active."""
+        meta: Dict[str, Any] = {}
+        for key, value in task.meta.items():
+            if key == "rank":
+                continue
+            meta[key] = value
+            if key == "priority":
+                meta["rank"] = rank
+        meta.setdefault("rank", rank)
+        (task.path / BRIEF_FILE).write_text(dump_front_matter(meta, task.body), encoding="utf-8")
+
+    def rank_task(self, ref: str, top: bool = False, bottom: bool = False,
+                  before: Optional[str] = None, after: Optional[str] = None) -> Task:
+        """Jira's "Rank": move a task to the top or bottom of the queue, or just before or after
+        another task. Usually rewrites only this task's brief; when there is no room between
+        the neighbours, the whole order is respaced by RANK_STEP."""
+        if sum(1 for m in (top, bottom, before, after) if m) != 1:
+            raise BoardError("give exactly one of top, bottom, before or after")
+        with self.write_lock():
+            task = self.get_task(ref)
+            others = [t for t in self._rank_entries() if t.id != task.id]
+            if top:
+                index = 0
+            elif bottom:
+                index = len(others)
+            else:
+                anchor = self.get_task(before or after)
+                if anchor.id == task.id:
+                    raise BoardError(f"{task.id} cannot be ranked relative to itself")
+                at = next(i for i, t in enumerate(others) if t.id == anchor.id)
+                index = at if before else at + 1
+            prev = others[index - 1] if index > 0 else None
+            nxt = others[index] if index < len(others) else None
+            already_there = task.has_stored_rank and (prev is None or _rank_key(prev) < _rank_key(task)) \
+                and (nxt is None or _rank_key(task) < _rank_key(nxt))
+            if already_there:
+                return task
+            if prev is None and nxt is None:
+                new: Optional[int] = RANK_STEP
+            elif prev is None:
+                new = nxt.rank - RANK_STEP
+            elif nxt is None:
+                new = prev.rank + RANK_STEP
+            elif nxt.rank - prev.rank >= 2:
+                new = (prev.rank + nxt.rank) // 2
+            else:
+                new = None
+            if new is not None:
+                self._write_rank(task, new)
+            else:
+                order = others[:index] + [task] + others[index:]
+                for position, t in enumerate(order, 1):
+                    if not t.has_stored_rank or t.rank != position * RANK_STEP:
+                        self._write_rank(t, position * RANK_STEP)
             return self.get_task(task.id)
 
     def move_task(self, ref: str, status: str, author: str = "aiboard", note: Optional[str] = None,
@@ -646,6 +725,7 @@ class Board:
                 tasks.append(t)
             except NotFound:
                 continue
+        tasks.sort(key=_rank_key)
         total = len(tasks)
         finished = counts["done"] + counts["cancelled"]
         return {
@@ -677,6 +757,12 @@ class Board:
             if not (path / WORKLOG_FILE).exists():
                 problems.append(f"{tid} has no {WORKLOG_FILE}")
         for t in tasks.values():
+            raw_rank = t.meta.get("rank")
+            if raw_rank is not None:
+                try:
+                    int(str(raw_rank).strip())
+                except ValueError:
+                    problems.append(f"{t.id}: rank {raw_rank!r} is not a whole number (it sorts by its id instead)")
             if t.meta.get("id") and t.meta["id"] != t.id:
                 problems.append(f"{t.id}: front matter id is {t.meta['id']!r}")
             for b in t.blocked_by:
@@ -768,6 +854,10 @@ def _find_cycles(graph: Dict[str, List[str]]) -> List[List[str]]:
         if state.get(n, 0) == 0:
             visit(n)
     return cycles
+
+
+def _rank_key(task: Task) -> Tuple[int, str]:
+    return (task.rank, task.id)
 
 
 def _priority(value: Any) -> str:

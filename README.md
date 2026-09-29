@@ -117,7 +117,8 @@ approval before MCP tool calls unless its approval policy allows them.
 | `aiboard agents-md [--claude] [--print]` | Insert/refresh the agent instructions block in `AGENTS.md` (and `CLAUDE.md`) |
 | `aiboard mcp [--author A]` | MCP server over stdio |
 | `aiboard task new TITLE [--body ...] [--sprint S-001] [--priority low\|medium\|high\|critical] [--assignee X] [--label L]` | Create a task in `backlog` |
-| `aiboard task list [--status S] [--sprint S-001] [--assignee X] [--unblocked\|--blocked\|--stale]` | List tasks |
+| `aiboard task list [--status S] [--sprint S-001] [--assignee X] [--unblocked\|--blocked\|--stale]` | List tasks in queue order, top first |
+| `aiboard task rank T-001 (--top\|--bottom\|--before T-002\|--after T-002)` | Reorder the queue (Jira: Rank) |
 | `aiboard task show T-001` | Brief + worklog |
 | `aiboard task change-status T-001 STATUS [--note ...] [--force]` | Move the folder, append a worklog entry; refuses to start a blocked task unless forced |
 | `aiboard task block T-002 T-001` / `unblock ...` | Record that T-002 is blocked by T-001 (Jira: "is blocked by"); logged in the worklog |
@@ -149,6 +150,7 @@ id: T-001
 title: Write the spec
 sprint: S-001          # or empty
 priority: high         # low | medium | high | critical
+rank: 3000             # place in the queue; lower is nearer the top
 assignee: claude
 labels:
   - docs
@@ -168,6 +170,16 @@ worker needs. Agents may edit this file directly.
 `critical` for drop-everything work that arrives suddenly and needs attention
 now, such as production being broken; `urgent` is accepted as another name
 for it. Critical cards are highlighted on the web board.
+
+**Order.** Every task has a place in one queue, stored as `rank` in its front
+matter (lower is nearer the top). Board columns, `task list`, sprint views and
+the MCP `list_tasks` tool all sort by it, and agents are told to take the first
+task in the list. New tasks join the bottom; `critical` tasks go to the top when
+they are created or raised to critical, and can still be moved after that.
+Reorder with `aiboard task rank`, the `rank_task` MCP tool, or by dragging cards
+on the web board. Moving a task usually rewrites only that task's `brief.md`;
+ranks are spaced 1000 apart and respaced only when a gap runs out. Tasks from
+before ranking existed have no `rank` and keep their id order.
 
 A task is **blocked** while any id in `blocked_by` is still in `backlog` or
 `in-progress`. `task list --unblocked` (or the MCP `list_tasks` with
@@ -265,8 +277,10 @@ Run `aiboard check` afterwards to confirm the board is consistent. See
 request re-reads the folders, so the page is always in sync with what agents
 write, and it refreshes itself every few seconds.
 
-For humans it is a Trello-style board: drag cards between columns to change
-status, open a card to change sprint, priority or assignee, add worklog
+For humans it is a Trello-style board: drag cards up and down to reorder the
+queue, or into another column to change status (a line shows where the card
+will land). Open a card to change sprint, priority or assignee, move it to
+the top or bottom of the queue, add worklog
 entries, and create tasks and sprints from forms. Type your name in the header
 once; it is remembered in the browser and used as the author of everything you
 do. `aiboard serve --read-only` turns editing off for display-only screens.

@@ -58,6 +58,17 @@ class McpTests(unittest.TestCase):
         edited = self.call("edit_task", id=task["id"], priority="low")["structuredContent"]
         self.assertEqual(edited["priority"], "low")
 
+    def test_rank_task(self):
+        for title in ("a", "b", "c"):
+            self.call("create_task", title=title)
+        self.call("rank_task", id="T-003", top=True)
+        self.call("rank_task", id="T-1", before="T-2")
+        listed = self.call("list_tasks", status="backlog")["structuredContent"]["result"]
+        self.assertEqual([t["id"] for t in listed], ["T-003", "T-001", "T-002"])
+        reply = self.rpc("tools/call", {"name": "rank_task", "arguments": {"id": "T-001"}})
+        self.assertTrue(reply["result"]["isError"])
+        self.assertIn("exactly one", reply["result"]["content"][0]["text"])
+
     def test_full_loop_through_tools(self):
         sp = self.call("create_sprint", title="Sprint 1", status="in-progress")["structuredContent"]
         self.assertEqual(sp["id"], "S-001")

@@ -47,6 +47,21 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("critical", err["error"])
 
+    def test_rank_endpoint(self):
+        for title in ("a", "b", "c"):
+            self.req("/api/tasks", {"title": title})
+        status, t = self.req("/api/tasks/T-003/rank", {"top": True})
+        self.assertEqual((status, t["id"]), (200, "T-003"))
+        status, t = self.req("/api/tasks/T-001/rank", {"after": "T-002"})
+        self.assertEqual(status, 200)
+        status, board = self.req("/api/board")
+        self.assertEqual([x["id"] for x in board["tasks"]], ["T-003", "T-002", "T-001"])
+        self.assertTrue(all("rank" in x for x in board["tasks"]))
+        status, err = self.req("/api/tasks/T-001/rank", {})
+        self.assertEqual(status, 400)
+        status, err = self.req("/api/tasks/T-001/rank", {"before": "T-099"})
+        self.assertEqual(status, 404)
+
     def test_index_and_board(self):
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/") as resp:
             self.assertIn(b"<title>aiboard</title>", resp.read())

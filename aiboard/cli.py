@@ -119,6 +119,7 @@ def cmd_task_show(args):
         f"status:   {t.status}",
         f"sprint:   {t.sprint or '-'}",
         f"priority: {t.priority}",
+        f"rank:     {t.rank}",
         f"assignee: {t.assignee or '-'}",
         f"labels:   {', '.join(t.meta.get('labels') or []) or '-'}",
         "blocked:  " + (", ".join(f"{b['id']} ({b['status']})" for b in t.blockers) if t.blockers else "-")
@@ -150,6 +151,14 @@ def cmd_task_block(args):
     board = _board(args)
     t = board.block(args.id, args.blockers, author=args.by)
     _emit(args, t.to_dict(), f"{t.id} is blocked by {', '.join(t.blocked_by) or 'nothing'}")
+
+
+def cmd_task_rank(args):
+    board = _board(args)
+    t = board.rank_task(args.id, top=args.top, bottom=args.bottom, before=args.before, after=args.after)
+    where = ("to the top" if args.top else "to the bottom" if args.bottom
+             else f"before {args.before}" if args.before else f"after {args.after}")
+    _emit(args, t.to_dict(), f"Ranked {t.id} {where} (rank {t.rank})")
 
 
 def cmd_task_unblock(args):
@@ -391,7 +400,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--by", default=DEFAULT_AUTHOR, help="author for the worklog entry")
     s.set_defaults(func=cmd_task_new)
 
-    s = task.add_parser("list", help="list tasks (metadata only; use `show` for the brief)")
+    s = task.add_parser("list", help="list tasks in queue order, top first (metadata only; use `show` for the brief)")
     s.add_argument("--status")
     s.add_argument("--sprint")
     s.add_argument("--assignee")
@@ -418,6 +427,16 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("blockers", nargs="+", metavar="BLOCKER")
     s.add_argument("--by", default=DEFAULT_AUTHOR)
     s.set_defaults(func=cmd_task_block)
+
+    s = task.add_parser("rank", help="reorder the queue (Jira: Rank): move a task to the top, the bottom, "
+                                     "or next to another task")
+    s.add_argument("id")
+    where = s.add_mutually_exclusive_group(required=True)
+    where.add_argument("--top", action="store_true", help="top of the queue")
+    where.add_argument("--bottom", action="store_true", help="bottom of the queue")
+    where.add_argument("--before", metavar="ID", help="just above this task")
+    where.add_argument("--after", metavar="ID", help="just below this task")
+    s.set_defaults(func=cmd_task_rank)
 
     s = task.add_parser("unblock", help="remove blockers from a task")
     s.add_argument("id")
