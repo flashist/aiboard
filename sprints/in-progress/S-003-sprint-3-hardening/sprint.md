@@ -16,8 +16,9 @@ tasks:
   - T-022
   - T-023
   - T-024
+  - T-025
 created: "2026-09-13T07:48:54Z"
-updated: "2026-09-29T20:47:52Z"
+updated: "2026-09-29T20:58:56Z"
 ---
 
 # Sprint 3 — hardening
@@ -37,3 +38,4 @@ updated: "2026-09-29T20:47:52Z"
 - [ ] T-022 — Web board accepts cross-origin writes (CSRF) (backlog)
 - [ ] T-023 — Front matter silently converts digit strings to ints, destroying zero-padding (backlog)
 - [x] T-024 — Add a critical priority for drop-everything work (done)
+- [x] T-025 — Manual task ordering (rank), like Trello/Jira (done)
