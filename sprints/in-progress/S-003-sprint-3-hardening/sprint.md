@@ -17,8 +17,9 @@ tasks:
   - T-023
   - T-024
   - T-025
+  - T-026
 created: "2026-09-13T07:48:54Z"
-updated: "2026-10-20T14:33:15Z"
+updated: "2026-10-20T14:49:48Z"
 ---
 
 # Sprint 3 — hardening
@@ -39,3 +40,4 @@ updated: "2026-10-20T14:33:15Z"
 - [x] T-023 — Front matter silently converts digit strings to ints, destroying zero-padding (done)
 - [x] T-024 — Add a critical priority for drop-everything work (done)
 - [x] T-025 — Manual task ordering (rank), like Trello/Jira (done)
+- [x] T-026 — Phase-1 handover cleanups for fkit's Node port (done)
