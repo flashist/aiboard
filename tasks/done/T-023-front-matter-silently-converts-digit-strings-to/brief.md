@@ -3,11 +3,11 @@ id: T-023
 title: Front matter silently converts digit strings to ints, destroying zero-padding
 sprint: S-003
 priority: high
-assignee: 
+assignee: aiboard-lead
 labels: []
 blocked_by: []
 created: "2026-09-18T12:50:09Z"
-updated: "2026-09-18T12:50:09Z"
+updated: "2026-10-20T14:33:15Z"
 ---
 
 # Front matter silently converts digit strings to ints, destroying zero-padding

@@ -18,7 +18,7 @@ tasks:
   - T-024
   - T-025
 created: "2026-09-13T07:48:54Z"
-updated: "2026-09-29T20:58:56Z"
+updated: "2026-10-20T14:33:15Z"
 ---
 
 # Sprint 3 — hardening
@@ -36,6 +36,6 @@ updated: "2026-09-29T20:58:56Z"
 - [ ] T-020 — Comment resolution semantics (backlog)
 - [ ] T-021 — Snapshot is O(n^2): sprint_progress re-scans the tree per task (backlog)
 - [ ] T-022 — Web board accepts cross-origin writes (CSRF) (backlog)
-- [ ] T-023 — Front matter silently converts digit strings to ints, destroying zero-padding (backlog)
+- [x] T-023 — Front matter silently converts digit strings to ints, destroying zero-padding (done)
 - [x] T-024 — Add a critical priority for drop-everything work (done)
 - [x] T-025 — Manual task ordering (rank), like Trello/Jira (done)

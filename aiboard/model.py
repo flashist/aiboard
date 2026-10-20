@@ -124,7 +124,8 @@ def _parse_scalar(raw: str) -> Any:
         if not inner:
             return []
         return [_parse_scalar(item) for item in inner.split(",")]
-    if re.fullmatch(r"-?\d+", raw):
+    # Only canonical integers become ints: "0013" stays a string, so a zero-padded id survives.
+    if re.fullmatch(r"-?\d+", raw) and str(int(raw)) == raw:
         return int(raw)
     return raw
 
@@ -181,7 +182,7 @@ def _dump_scalar(value: Any) -> str:
     if isinstance(value, int):
         return str(value)
     s = str(value)
-    if s == "" or s != s.strip() or any(c in s for c in ":#[]{}") or s.lower() in ("true", "false", "null"):
+    if s == "" or s != s.strip() or any(c in s for c in ":#[]{}") or s.lower() in ("true", "false", "null") or _parse_scalar(s) != s:
         return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
     return s
 

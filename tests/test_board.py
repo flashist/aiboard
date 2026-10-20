@@ -34,6 +34,25 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(body, "hello")
         self.assertEqual(parse_front_matter("no front matter"), ({}, "no front matter"))
 
+    def test_zero_padded_digits_roundtrip_byte_identical(self):
+        text = "---\nid: 0013\nblocked_by:\n  - 0404\n  - 0013\n---\n\nbody\n"
+        meta, body = parse_front_matter(text)
+        self.assertEqual(meta, {"id": "0013", "blocked_by": ["0404", "0013"]})
+        self.assertEqual(dump_front_matter(meta, body), text)
+
+    def test_hostile_scalars_roundtrip(self):
+        values = ["0404", "0013", "007", "404", "-3", "-0", 5, -3, 0, True, False, None,
+                  "true", "False", "null", "None", "~", "", " pad ", "🚀 emoji", "a: b", "[x]",
+                  "{y}", '"quoted"', "'single'", "back\\slash", 'both \\"', "# hash"]
+        for v in values:
+            meta = {"v": v, "l": [v, "ok"]}
+            parsed, _ = parse_front_matter(dump_front_matter(meta, ""))
+            self.assertEqual(parsed["v"], v, repr(v))
+            self.assertIs(type(parsed["v"]), type(v), repr(v))
+            # None and "" inside a block list are not preserved yet; that is outside this fix.
+            if v not in ("", None):
+                self.assertEqual(parsed["l"], [v, "ok"], repr(v))
+
     def test_quotes_and_backslashes_roundtrip(self):
         for title in ('Fix "quoted" bug: x', "back\\slash", 'both \\"', "it's"):
             meta, _ = parse_front_matter(dump_front_matter({"title": title}, ""))
