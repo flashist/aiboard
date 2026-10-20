@@ -1,7 +1,9 @@
 import json
+import re
 import shutil
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from aiboard.cli import main
@@ -502,10 +504,14 @@ class BoardTests(unittest.TestCase):
 
         t = self.board.start("T-001", "bot")
         self.assertFalse(t.stale)
-        # age every timestamp by a month
+        # age every timestamp by a month, relative to now so the test passes on any date
+        def month_earlier(m):
+            when = datetime.strptime(m.group(0), "%Y-%m-%dT%H:%M:%SZ") - timedelta(days=31)
+            return when.strftime("%Y-%m-%dT%H:%M:%SZ")
+
         for name in ("worklog.md", "comments.md", "brief.md"):
             f = t.path / name
-            f.write_text(f.read_text().replace("2026-09-", "2026-08-"))
+            f.write_text(re.sub(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", month_earlier, f.read_text()))
         t = self.board.get_task("T-001")
         self.assertTrue(t.stale)
         self.assertEqual([x.id for x in self.board.list_tasks(stale=True)], ["T-001"])
